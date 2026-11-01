@@ -44,8 +44,6 @@ This is a learning project. My goal is to become an independent Backend and AI-A
 - Prefer simple, readable Python over unnecessary abstractions.
 - Do not replace learning with automatic code generation.
 
-Use Hebrew for explanations and English for code and technical terminology.
-
 ## Development Workflow
 
 1. Read the assignment specification and inspect existing code.
@@ -74,6 +72,8 @@ Document significant engineering decisions involving AI recommendations, includi
 - Relevant alternatives and tradeoffs
 
 Record actual decisions as they occur. Do not fabricate entries.
+
+Use the `record-decision` skill (`/record-decision`) for this workflow. When I finalize a significant decision (a lasting choice between real alternatives, or rejecting or changing an AI recommendation), end your reply with a one-line offer to record it. Do not offer for routine questions or small changes. Never write to the log until I approve the exact entry.
 
 ## Presentation & Delivery
 
