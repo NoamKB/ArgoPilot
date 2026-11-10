@@ -774,7 +774,7 @@ def update_plot(plot_id: UUID, body: PlotUpdate, conn: DbConnection):
 
 ## Increment 9: NFR-1.1 benchmark
 
-**File:** `scripts/measure_p95.py`, standard library only.
+**Files:** `scripts/measure_p95.py`, standard library only; `tests/test_measure_p95.py`.
 
 ### Concepts first
 
@@ -840,8 +840,19 @@ def run_benchmark(base_url: str, rate: float, duration: float) -> list[tuple[str
 2. Seed a database in a `tempfile.TemporaryDirectory()`, which deletes itself afterwards, so the real `registry.db` is never touched.
 3. Start uvicorn with `--log-level warning` (one worker, no reload, the same as a normal run) and wait for `/health`.
 4. **Warm-up:** request each route once and discard the results, so first-request effects such as Python importing modules don't distort the numbers.
-5. Run, stop the server in `finally`, print p50, p95, and max per route and overall, and count non-200 responses.
-6. Exit `0` for PASS (no failures and p95 ≤ 100 ms) and `1` otherwise, so the script can gate a CI job.
+5. Run, stop the server in `finally`, print p50, p95, and max per route and overall, and count non-200 responses. A route with no successful responses prints "no successful responses" instead of disappearing from the table.
+6. Decide PASS with `benchmark_passed(results)`, then exit `0` for PASS and `1` otherwise, so the script can gate a CI job.
+
+`benchmark_passed(results)` returns `True` only if all of these hold:
+
+- Every response is `200`.
+- The overall p95 is at most 100 ms.
+- Every route in `ENDPOINTS` has results, so no route is silently skipped.
+- Every route's own p95 is at most 100 ms.
+
+The per-route check matters because each route gets only about 1/11 of the requests. One route could be slow on about half of its requests while the overall p95 still looks fine (JL-003).
+
+`tests/test_measure_p95.py` tests `benchmark_passed` with made-up results, so it runs in milliseconds without a server. The key test makes 5 of one route's 10 samples 200 ms: the overall p95 stays at 10 ms, but that route's p95 is 200 ms, so the result must be FAIL. The other tests check that all-fast results pass, a missing route fails, and a non-200 response fails.
 
 **Methodology notes for the PR:** each request opens a new TCP connection (`urllib` has no keep-alive), which makes the numbers slightly pessimistic. The load generator runs on the same machine as the server.
 
@@ -852,6 +863,7 @@ def run_benchmark(base_url: str, rate: float, duration: float) -> list[tuple[str
 3. Why is latency measured from the scheduled time and not from when the thread started?
 4. Why does the benchmark exclude 404 routes, and why does any non-200 fail the run?
 5. How is the official benchmark different from an `oha` stress test?
+6. Why can the overall p95 pass while one route is slow, and how does `benchmark_passed` catch it?
 
 ---
 

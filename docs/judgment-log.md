@@ -23,3 +23,14 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** Open one SQLite connection per request, without a connection pool, as the AI recommended.
 - **Reasoning:** Opening a SQLite connection is relatively cheap, because SQLite accesses a local database file and does not connect to a separate database server.
 - **Tradeoffs:** Opening and closing a connection adds some overhead to every request. Reviewed afterward: SQLite allows only one writer at a time, which can limit heavy concurrent writes, and a pool would not remove that limit. The GET benchmark measured a p95 of about 9.07 ms at 10 requests per second, below the required 100 ms; this supports the choice for P1 but does not prove it scales under heavy write load.
+
+## JL-003: Require every endpoint's p95 to pass the benchmark
+
+- **Date:** 2026-11-10
+- **Assignment:** P1 — Registry Service API
+- **Context:** The NFR-1.1 benchmark printed a p95 for each of the 11 GET endpoints, but its PASS condition checked only the overall p95, so one endpoint could exceed 100 ms and the benchmark would still report PASS.
+- **AI recommendation:** Leave the PASS condition as it was for now, because every endpoint was far below 100 ms, and treat the fix as an optional one-line change for later.
+- **Alternatives:** Keep the overall-only check and add the slowest endpoint's p95 to the pull request, set aside because it leaves a known validation gap.
+- **Decision:** Fix the PASS condition before merging: PASS now requires every response to be 200, the overall p95 and every endpoint's p95 to be at most 100 ms, and every endpoint to have results. Four tests cover it, including one slow endpoint that fails while the overall p95 passes.
+- **Reasoning:** The benchmark could report PASS even when an individual endpoint exceeds 100 ms, and a known validation gap should not be left in before merging.
+- **Tradeoffs:** Checking each endpoint separately makes the benchmark stricter and prevents false positives. However, each endpoint receives only about 109 requests, so a few slow requests may cause a failure due to temporary performance fluctuations. Reviewed afterward: all 171 tests passed, and the updated benchmark passed with an overall p95 of 9.76 ms and a slowest endpoint p95 of 9.97 ms.
