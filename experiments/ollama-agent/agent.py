@@ -6,9 +6,9 @@ import ollama
 
 MODEL = "qwen3:1.7b"
 
+
 def current_date() -> str:
-    """Get today's date and weekday.
-    Get today's date and day of the week. Call this whenever the user asks what day, date, or weekday it is.
+    """Get today's date and day of the week. Call this whenever the user asks what day, date, or weekday it is.
 
     Returns:
         Today's date as YYYY-MM-DD followed by the weekday name.
@@ -30,12 +30,11 @@ while True:
     # Keep calling the model until it answers with text instead of tool calls.
     while True:
         response = ollama.chat(
-            model=MODEL, 
-            messages=messages, 
-            tools=list(TOOLS.values()), 
-            think=False
+            model=MODEL,
+            messages=messages,
+            tools=list(TOOLS.values()),
+            think=False,
         )
-        
         messages.append(response.message)
         if not response.message.tool_calls:
             break
@@ -45,4 +44,3 @@ while True:
             messages.append({"role": "tool", "tool_name": call.function.name, "content": str(result)})
 
     print(f"agent> {response.message.content}")
-
