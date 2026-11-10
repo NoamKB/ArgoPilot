@@ -13,6 +13,9 @@ venv/
 .env.*
 !.env.example
 
+# Local SQLite database (rebuilt by seed_registry.sh)
+registry.db*
+
 # Tools and test output
 .pytest_cache/
 .ruff_cache/
@@ -25,3 +28,6 @@ htmlcov/
 .idea/
 .vscode/*
 !.vscode/launch.json
+
+# Local Claude Code settings
+.claude/settings.local.json
