@@ -3,7 +3,8 @@
 Seeds a temporary database, starts uvicorn against it, sends requests on a fixed
 schedule (open loop), and reports p95 per endpoint and overall. Latency is measured
 from each request's scheduled send time, so a slow server cannot hide its delay.
-Exits with status 1 if any response is not 200 or if overall p95 exceeds the target.
+Exits with status 1 if any response is not 200, or if the overall p95 or any
+endpoint's p95 exceeds the target.
 """
 
 import argparse
@@ -41,6 +42,19 @@ ENDPOINTS = [
 def p95(latencies_ms: list[float]) -> float:
     ordered = sorted(latencies_ms)
     return ordered[math.ceil(0.95 * len(ordered)) - 1]
+
+
+def benchmark_passed(results: list[tuple[str, int, float]]) -> bool:
+    if any(status != 200 for _, status, _ in results):
+        return False
+    latencies = [latency for _, _, latency in results]
+    if not latencies or p95(latencies) > TARGET_P95_MS:
+        return False
+    for path in ENDPOINTS:
+        values = [latency for p, _, latency in results if p == path]
+        if not values or p95(values) > TARGET_P95_MS:
+            return False
+    return True
 
 
 def free_port() -> int:
@@ -124,13 +138,14 @@ def main() -> int:
         values = [latency for p, status, latency in results if p == path and status == 200]
         if values:
             print(f"GET {path:54} {len(values):5} {sorted(values)[len(values) // 2]:8.2f} {p95(values):8.2f} {max(values):8.2f}")
+        else:
+            print(f"GET {path:54} {0:5}  no successful responses")
     if latencies:
         print(f"{'ALL':58} {len(latencies):5} {sorted(latencies)[len(latencies) // 2]:8.2f} {p95(latencies):8.2f} {max(latencies):8.2f}")
     print(f"\nNon-200 responses: {len(failures)} of {len(results)}")
 
-    overall_p95 = p95(latencies) if latencies else math.inf
-    passed = not failures and overall_p95 <= TARGET_P95_MS
-    print(f"NFR-1.1 (p95 <= {TARGET_P95_MS} ms, all responses 200): {'PASS' if passed else 'FAIL'}")
+    passed = benchmark_passed(results)
+    print(f"NFR-1.1 (overall and every endpoint p95 <= {TARGET_P95_MS} ms, all responses 200): {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 
 
