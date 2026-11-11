@@ -34,3 +34,36 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** Fix the PASS condition before merging: PASS now requires every response to be 200, the overall p95 and every endpoint's p95 to be at most 100 ms, and every endpoint to have results. Four tests cover it, including one slow endpoint that fails while the overall p95 passes.
 - **Reasoning:** The benchmark could report PASS even when an individual endpoint exceeds 100 ms, and a known validation gap should not be left in before merging.
 - **Tradeoffs:** Checking each endpoint separately makes the benchmark stricter and prevents false positives. However, each endpoint receives only about 109 requests, so a few slow requests may cause a failure due to temporary performance fluctuations. Reviewed afterward: all 171 tests passed, and the updated benchmark passed with an overall p95 of 9.76 ms and a slowest endpoint p95 of 9.97 ms.
+
+## JL-004: Create the PostgreSQL schema with a setup script
+
+- **Date:** 2026-11-10
+- **Assignment:** P1 — Registry Service API
+- **Context:** registry-service needed a way to create its initial PostgreSQL tables and seed data.
+- **AI recommendation:** Use a separate, re-runnable setup script instead of creating tables at application startup or introducing Alembic.
+- **Alternatives:** Automatic table creation at application startup, or versioned migrations with Alembic; both set aside for a simpler solution that fits the current scope.
+- **Decision:** Create the initial PostgreSQL schema and seed data with a simple setup script, as the AI recommended.
+- **Reasoning:** Schema changes such as creating tables and adding columns have already been done manually in another project, and migration infrastructure should not become a major part of this assignment.
+- **Tradeoffs:** There is no automatic schema version tracking, so future schema changes need manual, careful execution, including backups and validation when existing data is modified. A migration tool can be added later if the project becomes more complex.
+
+## JL-005: Seed catalogues in PostgreSQL; keep demo data optional
+
+- **Date:** 2026-11-10
+- **Assignment:** P1 — Registry Service API
+- **Context:** The PostgreSQL setup script from JL-004 needed a defined scope of rows: the catalogues the API depends on (2 crops, 3 soils, 4 emitters), the demo data from `seed_registry.sh` (2 farms, 4 plots), or both.
+- **AI recommendation:** Insert the catalogues only, copied exactly from `seed_registry.sh`, and leave demo farms and plots out of PostgreSQL.
+- **Alternatives:** Insert catalogues and demo data together, set aside because demo farms would appear in a production `GET /v1/farms` and need manual cleanup later.
+- **Decision:** The PostgreSQL setup creates the schema and seeds the catalogues. The 2 demo farms and 4 demo plots are optional, for development and testing only, and are never inserted automatically into a production database.
+- **Reasoning:** Required catalogue data and optional demo data have different purposes and should be kept separate. The implementation should stay simple, without extra seeding infrastructure.
+- **Tradeoffs:** A PostgreSQL development database needs an explicit extra step to get demo data. Keeping the catalogue rows identical to `seed_registry.sh` means both seed sources must be kept in sync by hand.
+
+## JL-006: Run the existing test suite against both SQLite and PostgreSQL
+
+- **Date:** 2026-11-10
+- **Assignment:** P1 — Registry Service API
+- **Context:** The endpoints must behave exactly the same on PostgreSQL as on SQLite, and the mission requires tests to use SQLite by default, so a way to verify PostgreSQL behavior was needed.
+- **AI recommendation:** Both an opt-in run of the existing test suite against a temporary PostgreSQL database, and a short manual smoke-test section in the README for demonstration.
+- **Alternatives:** An opt-in PostgreSQL test run alone, without the README demo; or a manual smoke test only, set aside because it covers about 10 of roughly 170 cases and could miss differences such as number or date formats. A separate test suite per database was rejected as duplication.
+- **Decision:** Reuse the existing API test suite for both databases, with SQLite as the default. PostgreSQL runs use a temporary, isolated test database through adapted fixtures. Tests that are specific to one database, such as a missing or corrupt SQLite file returning 503, stay separate. A short manual smoke-test section is added to the README.
+- **Reasoning:** This is a good tradeoff between the smallest solution and comprehensive test coverage of the entire change, without duplicating tests or adding unnecessary testing infrastructure.
+- **Tradeoffs:** The test fixtures become somewhat more complex. The PostgreSQL run is opt-in and needs Docker, so it protects only when someone runs it; there is no CI to run it automatically.
