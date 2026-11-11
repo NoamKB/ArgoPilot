@@ -1,0 +1,2070 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Registry Request Debugger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Hebrew:wght@400;500;600;700&display=swap">
+<style>
+/* Layout follows the reference debugger: explanation, state and call stack on the right (RTL),
+   the real source on the left, and the request's path drawn above as a sequence diagram. */
+:root {
+  --bg: #E9ECEF; --panel: #F8F9FA; --panel-2: #EEF1F4; --line: #CDD3DA; --fg: #18202A; --muted: #56616E;
+  --cur: #D99A00; --cur-bg: #FFF0BF; --range-bg: #F4EBD0;
+  --err: #C0392B; --err-bg: #FBDDD8; --ok: #23784A; --ok-bg: #D9F0E2; --blue: #2457C5; --blue-bg: #DCE6FA;
+  --tok-kw: #7B36AE; --tok-str: #9A4B16; --tok-com: #6B7684; --tok-num: #1D63A8; --tok-deco: #A35400;
+  --l-edge: #7A8796; --l-deps: #0F7B74; --l-schema: #7B36AE; --l-router: #2457C5; --l-repo: #B25A00; --l-sql: #9A6A00; --l-err: #C0392B;
+  --ui: "IBM Plex Sans Hebrew", "Segoe UI", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1217; --panel: #151B22; --panel-2: #1B232C; --line: #2A3440; --fg: #DDE4EB; --muted: #8B98A6;
+    --cur: #F2B728; --cur-bg: rgba(242, 183, 40, 0.17); --range-bg: rgba(242, 183, 40, 0.07);
+    --err: #F2786B; --err-bg: rgba(242, 120, 107, 0.17); --ok: #5BD08E; --ok-bg: rgba(91, 208, 142, 0.15);
+    --blue: #7EAAFF; --blue-bg: rgba(126, 170, 255, 0.15);
+    --tok-kw: #C79BF2; --tok-str: #E9A873; --tok-com: #6F7C8A; --tok-num: #7FBDFF; --tok-deco: #F2B66D;
+    --l-edge: #8B98A6; --l-deps: #4FC7BC; --l-schema: #C79BF2; --l-router: #7EAAFF; --l-repo: #F0A060; --l-sql: #E0B341; --l-err: #F2786B;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1217; --panel: #151B22; --panel-2: #1B232C; --line: #2A3440; --fg: #DDE4EB; --muted: #8B98A6;
+  --cur: #F2B728; --cur-bg: rgba(242, 183, 40, 0.17); --range-bg: rgba(242, 183, 40, 0.07);
+  --err: #F2786B; --err-bg: rgba(242, 120, 107, 0.17); --ok: #5BD08E; --ok-bg: rgba(91, 208, 142, 0.15);
+  --blue: #7EAAFF; --blue-bg: rgba(126, 170, 255, 0.15);
+  --tok-kw: #C79BF2; --tok-str: #E9A873; --tok-com: #6F7C8A; --tok-num: #7FBDFF; --tok-deco: #F2B66D;
+  --l-edge: #8B98A6; --l-deps: #4FC7BC; --l-schema: #C79BF2; --l-router: #7EAAFF; --l-repo: #F0A060; --l-sql: #E0B341; --l-err: #F2786B;
+  color-scheme: dark;
+}
+html, body { margin: 0; background: var(--bg); color: var(--fg); }
+body { font-family: var(--ui); font-size: 15px; line-height: 1.55; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3em; direction: ltr; unicode-bidi: isolate; }
+.app { max-width: 1380px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+.top { display: flex; flex-direction: column; gap: 4px; }
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.04em; color: var(--muted); direction: ltr; text-align: right; unicode-bidi: plaintext; }
+h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 700; line-height: 1.2; }
+.lede { margin: 0; color: var(--muted); max-width: 80ch; }
+.scen { display: flex; flex-wrap: wrap; gap: 8px; }
+.scen button { font: 500 14px var(--ui); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.scen button .st { font-family: var(--mono); font-weight: 600; font-size: 12.5px; padding: 1px 7px; border-radius: 999px; background: var(--err-bg); color: var(--err); }
+.scen button .st.good { background: var(--ok-bg); color: var(--ok); }
+.scen button .st.boot { background: var(--blue-bg); color: var(--blue); }
+.scen button .nm { font-family: var(--mono); font-size: 12.5px; direction: ltr; unicode-bidi: isolate; color: var(--muted); }
+.scen button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+button:focus-visible, select:focus-visible, .row:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; position: sticky; top: 0; z-index: 20; }
+.toolbar button { font: 500 14px var(--ui); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.toolbar button svg { width: 15px; height: 15px; fill: currentColor; }
+.toolbar button.primary { background: var(--cur-bg); border-color: var(--cur); font-weight: 600; }
+.toolbar button:disabled { opacity: 0.45; cursor: default; }
+.toolbar select { font: 14px var(--ui); color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 8px; }
+.toolbar .sep { width: 1px; align-self: stretch; background: var(--line); }
+.counter { font-family: var(--mono); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill { font-family: var(--mono); font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); white-space: nowrap; }
+.pill.good { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.pill.bad { background: var(--err-bg); color: var(--err); border-color: transparent; }
+.phase { font-family: var(--ui); font-size: 13px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.phase[data-p="in"] { background: var(--blue-bg); color: var(--blue); border-color: transparent; }
+.phase[data-p="work"] { background: var(--cur-bg); color: var(--fg); border-color: transparent; }
+.phase[data-p="out"] { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
+.phase[data-p="startup"] { background: var(--panel-2); color: var(--muted); }
+.keys { margin-inline-start: auto; font-size: 12.5px; color: var(--muted); }
+.keys kbd { font-family: var(--mono); font-size: 11.5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel-2); }
+
+/* ---- flow: lanes header + sequence diagram ---- */
+.flow { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+.flow-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); border-radius: 10px 10px 0 0; }
+.flow-head h2 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); }
+.flow-legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.flow-legend i { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--muted); vertical-align: middle; margin-inline-end: 5px; }
+.flow-legend i.in { border-color: var(--blue); }
+.flow-legend i.ret { border-top-style: dashed; }
+.flow-legend i.err { border-color: var(--err); }
+.flow-legend i.out { border-color: var(--ok); }
+.flow-head button { margin-inline-start: auto; font: 500 12.5px var(--ui); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.seqscroll { overflow-x: auto; }
+.seqinner { min-width: 880px; direction: ltr; }
+.lanes { position: relative; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); padding: 16px 0 6px; border-bottom: 1px solid var(--line); }
+.node { margin: 0 4px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 6px 2px; border-radius: 8px; border: 1px solid transparent; border-top: 3px solid var(--lc, var(--line)); transition: background 0.25s, border-color 0.25s; text-align: center; }
+.node b { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+.node span { font-size: 11.5px; color: var(--muted); font-family: var(--mono); }
+.node.on { background: var(--cur-bg); border-color: var(--cur); border-top-color: var(--lc); }
+.node.on.err { background: var(--err-bg); border-color: var(--err); }
+.node.on.ok { background: var(--ok-bg); border-color: var(--ok); }
+.node.idle { opacity: 0.45; }
+.packet { position: absolute; top: 3px; left: 0; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: var(--cur); box-shadow: 0 0 0 4px var(--cur-bg); transition: left 0.6s cubic-bezier(0.45, 0.05, 0.2, 1), background 0.25s; }
+.packet.err { background: var(--err); box-shadow: 0 0 0 4px var(--err-bg); }
+.packet.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-bg); }
+.seqbody { position: relative; max-height: 230px; overflow-y: auto; }
+.seqbody.full { max-height: none; }
+.seqrows { position: relative; padding: 4px 0 10px; }
+.life { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--line); pointer-events: none; z-index: 1; }
+.life.on { border-left: 2px solid var(--cur); opacity: 0.6; }
+.row { position: relative; height: 30px; cursor: pointer; }
+.row:hover { background: var(--panel-2); }
+.row.now { background: var(--range-bg); box-shadow: inset 0 0 0 1px var(--cur); }
+.row.future { opacity: 0.36; }
+.ar { position: absolute; top: 20px; height: 0; border-top: 2px solid var(--a, var(--muted)); z-index: 2; }
+.ar.ret { border-top-style: dashed; }
+.ar::after { content: ""; position: absolute; top: -6px; border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.ar.r::after { right: -3px; border-left: 8px solid var(--a, var(--muted)); }
+.ar.l::after { left: -3px; border-right: 8px solid var(--a, var(--muted)); }
+.k-call { --a: var(--fg); }
+.k-ret { --a: var(--muted); }
+.k-err { --a: var(--err); }
+.k-in { --a: var(--blue); }
+.k-out { --a: var(--ok); }
+.k-outerr { --a: var(--err); }
+.row.now .ar, .row.now .self { border-top-width: 3px; }
+.lbl, .slbl { position: absolute; font: 500 11.5px var(--mono); white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; background: var(--panel); padding: 0 5px; border-radius: 4px; color: var(--fg); z-index: 3; }
+.row:hover .lbl, .row:hover .slbl { background: var(--panel-2); }
+.row.now .lbl, .row.now .slbl { background: var(--cur-bg); font-weight: 600; }
+.lbl { bottom: 3px; left: 50%; transform: translateX(-50%); }
+.lbl.s { left: 2px; transform: none; }
+.lbl.e { left: auto; right: 2px; transform: none; }
+.k-err .lbl, .k-outerr .lbl { color: var(--err); }
+.self { position: absolute; top: 8px; width: 16px; height: 13px; border: 2px solid var(--a, var(--muted)); border-left: 0; border-radius: 0 7px 7px 0; z-index: 2; }
+.dot { position: absolute; top: 11px; width: 9px; height: 9px; margin-left: -4.5px; border-radius: 50%; background: var(--a, var(--muted)); z-index: 2; }
+.slbl { top: 6px; }
+.prow { position: relative; height: 24px; display: flex; align-items: center; justify-content: center; z-index: 3; }
+.prow span { font: 600 11.5px var(--ui); color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 0 10px; direction: rtl; }
+.prow[data-p="in"] span { color: var(--blue); }
+.prow[data-p="out"] span { color: var(--ok); }
+
+/* ---- main grid ---- */
+.grid { display: grid; grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 14px; align-items: start; }
+.side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; min-width: 0; }
+.card > h2 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: 0.05em; color: var(--muted); padding: 9px 14px; border-bottom: 1px solid var(--line); background: var(--panel-2); border-radius: 10px 10px 0 0; }
+.explain { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 9px; border-color: var(--cur); box-shadow: inset 0 3px 0 var(--cur); }
+.explain.err { border-color: var(--err); box-shadow: inset 0 3px 0 var(--err); }
+.explain.ok { border-color: var(--ok); box-shadow: inset 0 3px 0 var(--ok); }
+.ex-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.act { font-family: var(--mono); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 5px; background: var(--cur-bg); color: var(--fg); direction: ltr; }
+.act.err { background: var(--err-bg); color: var(--err); }
+.act.ok { background: var(--ok-bg); color: var(--ok); }
+.lanechip { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line); border-inline-start: 4px solid var(--lc, var(--line)); direction: ltr; }
+.where { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; font-size: 13px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.where dt { color: var(--muted); }
+.where dd { margin: 0; font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; overflow-wrap: anywhere; }
+.where dd.fw { color: var(--muted); }
+.hop { font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; padding: 6px 10px; border-radius: 8px; background: var(--blue-bg); color: var(--blue); border: 1px dashed var(--blue); animation: hop 0.9s ease-out; }
+.hop b { font-weight: 600; }
+@keyframes hop { from { transform: translateX(-10px); opacity: 0; } to { transform: none; opacity: 1; } }
+.explain h3 { margin: 0; font-size: 19px; font-weight: 700; line-height: 1.3; }
+.explain p { margin: 0; }
+.explain .extext { font-size: 15.5px; line-height: 1.65; }
+.does { font-size: 12px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line); color: var(--muted); }
+.does.run { color: var(--fg); }
+.does.define, .does.register { background: var(--blue-bg); color: var(--blue); border-color: var(--blue); }
+.does.skip { background: var(--err-bg); color: var(--err); border-color: var(--err); }
+.meta { margin: 0; display: flex; flex-direction: column; gap: 7px; font-size: 14px; line-height: 1.55; border-top: 1px solid var(--line); padding-top: 9px; }
+.meta > div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
+.tech { font-size: 13.5px; line-height: 1.55; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.tech summary { cursor: pointer; padding: 6px 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.tech[open] summary { border-bottom: 1px solid var(--line); }
+.tech ul { margin: 0; padding: 8px 10px 8px 0; padding-inline-start: 26px; display: flex; flex-direction: column; gap: 5px; }
+.meta dt { font-size: 12.5px; font-weight: 600; color: var(--muted); padding-top: 2px; }
+.meta dd { margin: 0; }
+.io { font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; display: flex; flex-direction: column; gap: 2px; overflow-wrap: anywhere; }
+.io span::before { color: var(--muted); }
+.io .i::before { content: "in   "; }
+.io .o::before { content: "out  "; }
+.op pre { margin: 0; padding: 10px 14px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; direction: ltr; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.vars, .stack { list-style: none; margin: 0; padding: 6px 0; font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; }
+.vars li { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); gap: 10px; padding: 3px 14px; transition: background 0.4s; }
+.vars li .k { color: var(--blue); overflow-wrap: anywhere; }
+.vars li .v { overflow-wrap: anywhere; }
+.vars li.chg { background: var(--cur-bg); }
+.vars .none { color: var(--muted); font-family: var(--ui); direction: rtl; text-align: right; padding: 3px 14px; display: block; }
+.stack li { padding: 3px 14px 3px 26px; position: relative; color: var(--muted); overflow-wrap: anywhere; }
+.stack li.ours { color: var(--fg); }
+.stack li.top { color: var(--fg); font-weight: 600; background: var(--cur-bg); }
+.stack li.top::before { content: ""; position: absolute; left: 10px; top: 50%; margin-top: -5px; border: 5px solid transparent; border-left: 7px solid var(--cur); }
+.stack li.dead { text-decoration: line-through; color: var(--err); opacity: 0.8; }
+.stack .thr { color: var(--muted); font-family: var(--ui); font-size: 11.5px; direction: rtl; text-align: right; padding: 1px 14px; border-top: 1px dashed var(--line); margin-top: 2px; }
+.editor { min-width: 0; display: flex; flex-direction: column; }
+.tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--panel-2); border-radius: 10px 10px 0 0; direction: ltr; }
+.tabs button { font: 500 12.5px var(--mono); color: var(--muted); background: transparent; border: 0; border-right: 1px solid var(--line); padding: 9px 12px; cursor: pointer; white-space: nowrap; position: relative; }
+.tabs button .dir { opacity: 0.6; }
+.tabs button.active { color: var(--fg); background: var(--panel); }
+.tabs button.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--cur); }
+.tabs button.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--cur); margin-right: 7px; vertical-align: 1px; }
+.tabs button.unused { opacity: 0.45; }
+.tabs button:disabled { opacity: 0.3; cursor: default; }
+.tabs button.flash { animation: tabflash 0.9s ease-out; }
+@keyframes tabflash { from { background: var(--cur-bg); } to { background: var(--panel); } }
+.pathbar { direction: ltr; text-align: left; font-family: var(--mono); font-size: 12px; color: var(--muted); padding: 5px 14px; border-bottom: 1px solid var(--line); }
+.pathbar b { color: var(--fg); font-weight: 600; }
+.code { direction: ltr; text-align: left; height: clamp(360px, 60vh, 640px); overflow: auto; font-family: var(--mono); font-size: 13px; line-height: 1.62; padding: 8px 0; position: relative; }
+.code.flash { animation: codeflash 0.9s ease-out; }
+@keyframes codeflash { from { box-shadow: inset 0 0 0 2px var(--blue); } to { box-shadow: inset 0 0 0 2px transparent; } }
+.ln { display: flex; white-space: pre; min-width: max-content; padding-right: 24px; }
+.gut { flex: 0 0 52px; text-align: right; padding-right: 10px; color: var(--muted); opacity: 0.7; user-select: none; font-variant-numeric: tabular-nums; position: relative; }
+.ln.seen .gut::after { content: ""; position: absolute; right: 1px; top: 50%; width: 4px; height: 4px; margin-top: -2px; border-radius: 50%; background: var(--cur); opacity: 0.8; }
+.mk { flex: 0 0 18px; position: relative; }
+.ln.cur .mk::before { content: ""; position: absolute; left: 4px; top: 50%; margin-top: -6px; border: 6px solid transparent; border-left: 9px solid var(--cur); }
+.ln.cur.err .mk::before { border-left-color: var(--err); }
+.ln.cur.ok .mk::before { border-left-color: var(--ok); }
+.ln.rng { background: var(--range-bg); }
+.ln.cur { background: var(--cur-bg); box-shadow: inset 3px 0 0 var(--cur); }
+.ln.cur .gut { opacity: 1; color: var(--fg); font-weight: 600; }
+.ln.cur.err { background: var(--err-bg); box-shadow: inset 3px 0 0 var(--err); }
+.ln.cur.ok { background: var(--ok-bg); box-shadow: inset 3px 0 0 var(--ok); }
+.inl { margin-left: 22px; font-style: italic; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; align-self: center; line-height: 1.4; }
+.ln.err .inl { color: var(--err); }
+.k1 { color: var(--tok-kw); font-weight: 500; }
+.s1 { color: var(--tok-str); }
+.c1 { color: var(--tok-com); font-style: italic; }
+.n1 { color: var(--tok-num); }
+.d1 { color: var(--tok-deco); }
+.h1s { color: var(--blue); font-weight: 600; }
+.peek { font-family: var(--ui); direction: rtl; font-size: 12.5px; color: var(--muted); padding: 6px 14px; border-top: 1px solid var(--line); background: var(--panel-2); }
+.tlwrap { padding: 10px 12px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.tl { display: flex; flex-wrap: wrap; gap: 4px; direction: ltr; }
+.tl button { width: 14px; height: 24px; border-radius: 3px; border: 0; padding: 0; cursor: pointer; background: var(--line); opacity: 0.5; }
+.tl button.past { opacity: 1; }
+.tl button.now { outline: 2px solid var(--fg); outline-offset: 1px; opacity: 1; }
+.tl button.gap { margin-left: 8px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-inline-end: 5px; vertical-align: -1px; }
+[data-lane="client"], [data-lane="uvicorn"], [data-lane="fastapi"] { --lc: var(--l-edge); }
+[data-lane="deps"] { --lc: var(--l-deps); }
+[data-lane="schemas"] { --lc: var(--l-schema); }
+[data-lane="router"] { --lc: var(--l-router); }
+[data-lane="repo"] { --lc: var(--l-repo); }
+[data-lane="sqlite"] { --lc: var(--l-sql); }
+.tl button[data-lane] { background: var(--lc); }
+.tl button.errstep { background: var(--l-err); }
+@media (max-width: 960px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .keys { display: none; }
+  .code { height: clamp(300px, 52vh, 480px); font-size: 12.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .packet, .node, .vars li, .hop, .code.flash, .tabs button.flash { transition: none; animation: none; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <p class="eyebrow">AgroPilot · services/registry-service · P1</p>
+    <h1>מסלול של בקשה, צעד אחר צעד</h1>
+    <p class="lede">בחרו תרחיש ולחצו על "צעד". בכל צעד הקוד עוצר על השורה שרצה עכשיו, כמו בנקודת עצירה בדיבאגר: רואים את הקוד האמיתי של השירות, את המשתנים, את מחסנית הקריאות, ואת מקום הבקשה בדיאגרמה מהרגע שהיא נכנסת ועד שהתשובה יוצאת.</p>
+    <p class="eyebrow" id="ver"></p>
+  </header>
+
+  <div class="scen" id="scen" role="group" aria-label="תרחיש"></div>
+
+  <div class="toolbar" role="toolbar" aria-label="פקדי הדיבאגר">
+    <button id="bRestart" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 2h2v12H3zM13 2v12L6 8z"/></svg>מההתחלה</button>
+    <button id="bBack" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M12 2v12L4 8z"/></svg>אחורה</button>
+    <button id="bStep" class="primary" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2v12l8-6z"/></svg>צעד</button>
+    <button id="bPlay" type="button" aria-pressed="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path id="playIcon" d="M3 2v12l11-6z"/></svg><span id="playLabel">הפעלה</span></button>
+    <select id="speed" aria-label="מהירות">
+      <option value="4500">איטי</option>
+      <option value="2800" selected>רגיל</option>
+      <option value="1500">מהיר</option>
+    </select>
+    <span class="sep" aria-hidden="true"></span>
+    <span class="counter" id="counter"></span>
+    <span class="phase" id="phase"></span>
+    <span class="pill" id="status">רץ</span>
+    <span class="keys"><kbd>F10</kbd> או <kbd>↓</kbd> צעד · <kbd>↑</kbd> אחורה · <kbd>רווח</kbd> הפעלה</span>
+  </div>
+
+  <section class="flow" aria-label="זרימת הבקשה">
+    <div class="flow-head">
+      <h2>זרימת הבקשה · דיאגרמת רצף</h2>
+      <div class="flow-legend">
+        <span><i class="in"></i>בקשה נכנסת</span>
+        <span><i></i>קריאה</span>
+        <span><i class="ret"></i>חזרה</span>
+        <span><i class="out"></i>תשובה יוצאת</span>
+        <span><i class="err"></i>חריגה</span>
+      </div>
+      <button id="bSeq" type="button" aria-pressed="false">הצג את כל הדיאגרמה</button>
+    </div>
+    <div class="seqscroll">
+      <div class="seqinner">
+        <div class="lanes" id="lanes"><div class="packet" id="packet" aria-hidden="true"></div></div>
+        <div class="seqbody" id="seqbody"><div class="seqrows" id="seqrows"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <main class="grid">
+    <div class="side">
+      <section class="card explain" id="explain" aria-live="polite">
+        <div class="ex-head"><span class="act" id="act"></span><span class="lanechip" id="lanechip"></span><span class="does" id="does"></span></div>
+        <dl class="where">
+          <dt>קובץ</dt><dd id="wFile"></dd>
+          <dt>פונקציה</dt><dd id="wFn"></dd>
+          <dt>שורות</dt><dd id="wLines"></dd>
+          <dt id="wFwK">ספרייה</dt><dd id="wFw" class="fw"></dd>
+        </dl>
+        <div class="hop" id="hop" hidden></div>
+        <h3 id="exTitle"></h3>
+        <p id="exText" class="extext"></p>
+        <dl class="meta">
+          <div id="whyRow"><dt>למה</dt><dd id="exWhy"></dd></div>
+          <div id="flowRow"><dt>מי קורא למי</dt><dd id="exFlow"></dd></div>
+          <div id="ioRow"><dt>קלט/פלט</dt><dd class="io" id="exIo"></dd></div>
+          <div id="nextRow"><dt>הצעד הבא</dt><dd id="exNext"></dd></div>
+        </dl>
+        <details class="tech" id="techBox"><summary>פרטים טכניים</summary><ul id="exTech"></ul></details>
+      </section>
+      <section class="card op" id="opCard" hidden>
+        <h2 id="opTitle"></h2>
+        <pre id="opText"></pre>
+      </section>
+      <section class="card">
+        <h2>משתנים ומצב</h2>
+        <ul class="vars" id="vars"></ul>
+      </section>
+      <section class="card">
+        <h2>מחסנית קריאות (Call stack)</h2>
+        <ul class="stack" id="stack"></ul>
+      </section>
+    </div>
+
+    <section class="card editor">
+      <div class="tabs" id="tabs" role="tablist" aria-label="קבצים"></div>
+      <div class="pathbar" id="pathbar"></div>
+      <div class="code" id="code" tabindex="0" aria-label="קוד המקור"></div>
+      <div class="peek" id="peek" hidden>אתם מציצים בקובץ אחר. הצעד הבא יחזיר אתכם לשורה שרצה.</div>
+      <div class="tlwrap">
+        <div class="tl" id="tl" aria-label="ציר הצעדים"></div>
+        <div class="legend">
+          <span><i style="background:var(--l-edge)"></i>Client, uvicorn, FastAPI</span>
+          <span><i style="background:var(--l-deps)"></i>db.py</span>
+          <span><i style="background:var(--l-schema)"></i>schemas.py</span>
+          <span><i style="background:var(--l-router)"></i>routers/</span>
+          <span><i style="background:var(--l-repo)"></i>repositories/</span>
+          <span><i style="background:var(--l-sql)"></i>SQLite</span>
+          <span><i style="background:var(--l-err)"></i>חריגה</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script id="data">
+/* The source files below are copied verbatim from services/registry-service by build_debugger.py. */
+var SRC = {"main.py": "import logging\nimport sqlite3\n\nfrom fastapi import FastAPI, HTTPException, Request\nfrom fastapi.exception_handlers import http_exception_handler\n\nfrom db import is_unavailable\nfrom routers import catalogues, farms, plots\n\nlogger = logging.getLogger(__name__)\n\napp = FastAPI(title=\"AgroPilot registry-service\", version=\"0.1.0\")\napp.include_router(farms.router)\napp.include_router(plots.router)\napp.include_router(catalogues.router)\n\n\n@app.exception_handler(sqlite3.DatabaseError)\nasync def database_error_handler(request: Request, exc: sqlite3.DatabaseError):\n    if not is_unavailable(exc):\n        raise exc\n    logger.warning(\"Database unavailable: %s\", exc)\n    return await http_exception_handler(\n        request,\n        HTTPException(status_code=503, detail=\"Database unavailable\", headers={\"Retry-After\": \"5\"}),\n    )\n\n\n@app.get(\"/health\")\ndef health() -> dict[str, str]:\n    return {\"status\": \"ok\"}\n", "db.py": "import os\nimport sqlite3\nfrom collections.abc import Iterator\nfrom pathlib import Path\nfrom typing import Annotated\n\nfrom fastapi import Depends\n\nDEFAULT_DB_PATH = Path(__file__).resolve().parent / \"registry.db\"\n\n# SQLite result codes that mean the database file cannot be used right now.\n# SQLITE_ERROR is not here: SQLite uses it for SQL mistakes such as a typo or a missing table.\nUNAVAILABLE_ERROR_NAMES = (\n    \"SQLITE_CANTOPEN\",\n    \"SQLITE_NOTADB\",\n    \"SQLITE_CORRUPT\",\n    \"SQLITE_IOERR\",\n    \"SQLITE_BUSY\",\n    \"SQLITE_LOCKED\",\n    \"SQLITE_FULL\",\n    \"SQLITE_READONLY\",\n)\n\n\ndef get_db_path() -> Path:\n    return Path(os.environ.get(\"REGISTRY_DB_PATH\", DEFAULT_DB_PATH))\n\n\ndef get_db() -> Iterator[sqlite3.Connection]:\n    uri = get_db_path().resolve().as_uri() + \"?mode=rw\"\n    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)\n    try:\n        conn.row_factory = sqlite3.Row\n        conn.execute(\"PRAGMA foreign_keys = ON\")\n        yield conn\n    finally:\n        conn.close()\n\n\ndef is_unavailable(exc: sqlite3.DatabaseError) -> bool:\n    error_name = getattr(exc, \"sqlite_errorname\", None) or \"\"\n    return error_name.startswith(UNAVAILABLE_ERROR_NAMES)\n\n\nDbConnection = Annotated[sqlite3.Connection, Depends(get_db)]\n", "schemas.py": "from datetime import date\nfrom typing import Annotated\nfrom uuid import UUID\n\nfrom pydantic import AfterValidator, BaseModel, ConfigDict, Field\n\n\ndef not_in_future(value: str) -> str:\n    if date.fromisoformat(value) > date.today():\n        raise ValueError(\"planting_date must not be in the future\")\n    return value\n\n\nName = Annotated[str, Field(min_length=1)]\nPositiveNumber = Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)]\nLatitude = Annotated[float, Field(ge=-90, le=90, strict=True, allow_inf_nan=False)]\nLongitude = Annotated[float, Field(ge=-180, le=180, strict=True, allow_inf_nan=False)]\nPlantingDate = Annotated[str, Field(pattern=r\"^[0-9]{4}-[0-9]{2}-[0-9]{2}$\"), AfterValidator(not_in_future)]\n\n\nclass Crop(BaseModel):\n    id: str\n    name: str\n\n\nclass Soil(BaseModel):\n    id: str\n    name: str\n    available_water_mm_per_m: int\n\n\nclass Emitter(BaseModel):\n    id: str\n    name: str\n    flow_lph: float\n\n\nclass FarmCreate(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\")\n\n    name: Name\n\n\nclass FarmUpdate(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\")\n\n    name: Name = None\n\n\nclass Farm(BaseModel):\n    id: UUID\n    name: str\n\n\nclass PlotCreate(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\")\n\n    farm_id: UUID\n    name: Name\n    area_m2: PositiveNumber\n    crop_id: str\n    planting_date: PlantingDate\n    soil_id: str\n    row_spacing_m: PositiveNumber\n    emitter_spacing_m: PositiveNumber\n    emitter_id: str\n    lat: Latitude\n    lon: Longitude\n\n\nclass PlotUpdate(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\")\n\n    farm_id: UUID = None\n    name: Name = None\n    area_m2: PositiveNumber = None\n    crop_id: str = None\n    planting_date: PlantingDate = None\n    soil_id: str = None\n    row_spacing_m: PositiveNumber = None\n    emitter_spacing_m: PositiveNumber = None\n    emitter_id: str = None\n    lat: Latitude = None\n    lon: Longitude = None\n\n\nclass Plot(BaseModel):\n    id: UUID\n    farm_id: UUID\n    name: str\n    area_m2: float\n    crop_id: str\n    planting_date: str\n    soil_id: str\n    row_spacing_m: float\n    emitter_spacing_m: float\n    emitter_id: str\n    lat: float\n    lon: float\n", "routers/catalogues.py": "from fastapi import APIRouter, HTTPException\n\nfrom db import DbConnection\nfrom repositories import catalogues as catalogue_repository\nfrom schemas import Crop, Emitter, Soil\n\nrouter = APIRouter(prefix=\"/v1\", tags=[\"catalogues\"])\n\n\n@router.get(\"/crops\", response_model=list[Crop])\ndef list_crops(conn: DbConnection):\n    return catalogue_repository.list_crops(conn)\n\n\n@router.get(\"/crops/{crop_id}\", response_model=Crop)\ndef get_crop(crop_id: str, conn: DbConnection):\n    crop = catalogue_repository.get_crop(conn, crop_id)\n    if crop is None:\n        raise HTTPException(status_code=404, detail=\"Crop not found\")\n    return crop\n\n\n@router.get(\"/soils\", response_model=list[Soil])\ndef list_soils(conn: DbConnection):\n    return catalogue_repository.list_soils(conn)\n\n\n@router.get(\"/soils/{soil_id}\", response_model=Soil)\ndef get_soil(soil_id: str, conn: DbConnection):\n    soil = catalogue_repository.get_soil(conn, soil_id)\n    if soil is None:\n        raise HTTPException(status_code=404, detail=\"Soil not found\")\n    return soil\n\n\n@router.get(\"/emitters\", response_model=list[Emitter])\ndef list_emitters(conn: DbConnection):\n    return catalogue_repository.list_emitters(conn)\n\n\n@router.get(\"/emitters/{emitter_id}\", response_model=Emitter)\ndef get_emitter(emitter_id: str, conn: DbConnection):\n    emitter = catalogue_repository.get_emitter(conn, emitter_id)\n    if emitter is None:\n        raise HTTPException(status_code=404, detail=\"Emitter not found\")\n    return emitter\n", "routers/farms.py": "import sqlite3\nfrom uuid import UUID\n\nfrom fastapi import APIRouter, HTTPException\n\nfrom db import DbConnection\nfrom repositories import farms as farm_repository\nfrom schemas import Farm, FarmCreate, FarmUpdate\n\nrouter = APIRouter(prefix=\"/v1/farms\", tags=[\"farms\"])\n\n\ndef get_farm_or_404(conn: sqlite3.Connection, farm_id: UUID) -> dict:\n    farm = farm_repository.get_farm(conn, str(farm_id))\n    if farm is None:\n        raise HTTPException(status_code=404, detail=\"Farm not found\")\n    return farm\n\n\n@router.post(\"\", status_code=201, response_model=Farm)\ndef create_farm(body: FarmCreate, conn: DbConnection):\n    return farm_repository.create_farm(conn, body.name)\n\n\n@router.get(\"\", response_model=list[Farm])\ndef list_farms(conn: DbConnection):\n    return farm_repository.list_farms(conn)\n\n\n@router.get(\"/{farm_id}\", response_model=Farm)\ndef get_farm(farm_id: UUID, conn: DbConnection):\n    return get_farm_or_404(conn, farm_id)\n\n\n@router.patch(\"/{farm_id}\", response_model=Farm)\ndef update_farm(farm_id: UUID, body: FarmUpdate, conn: DbConnection):\n    if \"name\" in body.model_fields_set:\n        if not farm_repository.update_farm_name(conn, str(farm_id), body.name):\n            raise HTTPException(status_code=404, detail=\"Farm not found\")\n    return get_farm_or_404(conn, farm_id)\n\n\n@router.delete(\"/{farm_id}\", status_code=204)\ndef delete_farm(farm_id: UUID, conn: DbConnection) -> None:\n    try:\n        deleted = farm_repository.delete_farm(conn, str(farm_id))\n    except sqlite3.IntegrityError as exc:\n        if exc.sqlite_errorname == \"SQLITE_CONSTRAINT_FOREIGNKEY\":\n            raise HTTPException(status_code=409, detail=\"Farm still has plots\") from exc\n        raise\n    if not deleted:\n        raise HTTPException(status_code=404, detail=\"Farm not found\")\n", "routers/plots.py": "import sqlite3\nfrom typing import NoReturn\nfrom uuid import UUID\n\nfrom fastapi import APIRouter, HTTPException\n\nfrom db import DbConnection\nfrom repositories import catalogues as catalogue_repository\nfrom repositories import farms as farm_repository\nfrom repositories import plots as plot_repository\nfrom schemas import Plot, PlotCreate, PlotUpdate\n\nrouter = APIRouter(prefix=\"/v1/plots\", tags=[\"plots\"])\n\n\ndef get_plot_or_404(conn: sqlite3.Connection, plot_id: UUID) -> dict:\n    plot = plot_repository.get_plot(conn, str(plot_id))\n    if plot is None:\n        raise HTTPException(status_code=404, detail=\"Plot not found\")\n    return plot\n\n\ndef check_references(conn: sqlite3.Connection, fields: dict) -> None:\n    if \"farm_id\" in fields and farm_repository.get_farm(conn, fields[\"farm_id\"]) is None:\n        raise HTTPException(status_code=404, detail=\"Farm not found\")\n    if \"crop_id\" in fields and catalogue_repository.get_crop(conn, fields[\"crop_id\"]) is None:\n        raise HTTPException(status_code=422, detail=\"Unknown crop\")\n    if \"soil_id\" in fields and catalogue_repository.get_soil(conn, fields[\"soil_id\"]) is None:\n        raise HTTPException(status_code=422, detail=\"Unknown soil\")\n    if \"emitter_id\" in fields and catalogue_repository.get_emitter(conn, fields[\"emitter_id\"]) is None:\n        raise HTTPException(status_code=422, detail=\"Unknown emitter\")\n\n\ndef raise_for_integrity_error(exc: sqlite3.IntegrityError) -> NoReturn:\n    if exc.sqlite_errorname == \"SQLITE_CONSTRAINT_UNIQUE\":\n        raise HTTPException(status_code=409, detail=\"Plot name already exists on this farm\") from exc\n    if exc.sqlite_errorname == \"SQLITE_CONSTRAINT_FOREIGNKEY\":\n        # The farm passed check_references but was deleted by a concurrent request.\n        raise HTTPException(status_code=404, detail=\"Farm not found\") from exc\n    raise exc\n\n\n@router.post(\"\", status_code=201, response_model=Plot)\ndef create_plot(body: PlotCreate, conn: DbConnection):\n    fields = body.model_dump(mode=\"json\")\n    check_references(conn, fields)\n    try:\n        return plot_repository.create_plot(conn, fields)\n    except sqlite3.IntegrityError as exc:\n        raise_for_integrity_error(exc)\n\n\n@router.get(\"\", response_model=list[Plot])\ndef list_plots(conn: DbConnection, farm_id: UUID | None = None):\n    return plot_repository.list_plots(conn, str(farm_id) if farm_id else None)\n\n\n@router.get(\"/{plot_id}\", response_model=Plot)\ndef get_plot(plot_id: UUID, conn: DbConnection):\n    return get_plot_or_404(conn, plot_id)\n\n\n@router.patch(\"/{plot_id}\", response_model=Plot)\ndef update_plot(plot_id: UUID, body: PlotUpdate, conn: DbConnection):\n    get_plot_or_404(conn, plot_id)\n    changes = body.model_dump(mode=\"json\", exclude_unset=True)\n    if changes:\n        check_references(conn, changes)\n        try:\n            updated = plot_repository.update_plot(conn, str(plot_id), changes)\n        except sqlite3.IntegrityError as exc:\n            raise_for_integrity_error(exc)\n        if not updated:\n            raise HTTPException(status_code=404, detail=\"Plot not found\")\n    return get_plot_or_404(conn, plot_id)\n\n\n@router.delete(\"/{plot_id}\", status_code=204)\ndef delete_plot(plot_id: UUID, conn: DbConnection) -> None:\n    if not plot_repository.delete_plot(conn, str(plot_id)):\n        raise HTTPException(status_code=404, detail=\"Plot not found\")\n", "repositories/catalogues.py": "import sqlite3\n\n\ndef list_crops(conn: sqlite3.Connection) -> list[dict]:\n    return [dict(row) for row in conn.execute(\"SELECT id, name FROM crops\")]\n\n\ndef get_crop(conn: sqlite3.Connection, crop_id: str) -> dict | None:\n    row = conn.execute(\"SELECT id, name FROM crops WHERE id = ?\", (crop_id,)).fetchone()\n    return dict(row) if row else None\n\n\ndef list_soils(conn: sqlite3.Connection) -> list[dict]:\n    return [dict(row) for row in conn.execute(\"SELECT id, name, available_water_mm_per_m FROM soils\")]\n\n\ndef get_soil(conn: sqlite3.Connection, soil_id: str) -> dict | None:\n    row = conn.execute(\n        \"SELECT id, name, available_water_mm_per_m FROM soils WHERE id = ?\", (soil_id,)\n    ).fetchone()\n    return dict(row) if row else None\n\n\ndef list_emitters(conn: sqlite3.Connection) -> list[dict]:\n    return [dict(row) for row in conn.execute(\"SELECT id, name, flow_lph FROM emitters\")]\n\n\ndef get_emitter(conn: sqlite3.Connection, emitter_id: str) -> dict | None:\n    row = conn.execute(\n        \"SELECT id, name, flow_lph FROM emitters WHERE id = ?\", (emitter_id,)\n    ).fetchone()\n    return dict(row) if row else None\n", "repositories/farms.py": "import sqlite3\nfrom uuid import uuid4\n\n\ndef list_farms(conn: sqlite3.Connection) -> list[dict]:\n    return [dict(row) for row in conn.execute(\"SELECT id, name FROM farms\")]\n\n\ndef get_farm(conn: sqlite3.Connection, farm_id: str) -> dict | None:\n    row = conn.execute(\"SELECT id, name FROM farms WHERE id = ?\", (farm_id,)).fetchone()\n    return dict(row) if row else None\n\n\ndef create_farm(conn: sqlite3.Connection, name: str) -> dict:\n    farm = {\"id\": str(uuid4()), \"name\": name}\n    with conn:\n        conn.execute(\"INSERT INTO farms (id, name) VALUES (:id, :name)\", farm)\n    return farm\n\n\ndef update_farm_name(conn: sqlite3.Connection, farm_id: str, name: str) -> bool:\n    with conn:\n        cursor = conn.execute(\"UPDATE farms SET name = ? WHERE id = ?\", (name, farm_id))\n    return cursor.rowcount == 1\n\n\ndef delete_farm(conn: sqlite3.Connection, farm_id: str) -> bool:\n    with conn:\n        cursor = conn.execute(\"DELETE FROM farms WHERE id = ?\", (farm_id,))\n    return cursor.rowcount == 1\n", "repositories/plots.py": "import sqlite3\nfrom uuid import uuid4\n\nSELECT_PLOTS = \"\"\"\n    SELECT id, farm_id, name, area_m2, crop_id, planting_date, soil_id,\n           row_spacing_m, emitter_spacing_m, emitter_id, lat, lon\n    FROM plots\n\"\"\"\n\nINSERT_PLOT = \"\"\"\n    INSERT INTO plots (\n        id, farm_id, name, area_m2, crop_id, planting_date, soil_id,\n        row_spacing_m, emitter_spacing_m, emitter_id, lat, lon\n    ) VALUES (\n        :id, :farm_id, :name, :area_m2, :crop_id, :planting_date, :soil_id,\n        :row_spacing_m, :emitter_spacing_m, :emitter_id, :lat, :lon\n    )\n\"\"\"\n\nUPDATABLE_COLUMNS = {\n    \"farm_id\", \"name\", \"area_m2\", \"crop_id\", \"planting_date\", \"soil_id\",\n    \"row_spacing_m\", \"emitter_spacing_m\", \"emitter_id\", \"lat\", \"lon\",\n}\n\n\ndef list_plots(conn: sqlite3.Connection, farm_id: str | None = None) -> list[dict]:\n    if farm_id is None:\n        rows = conn.execute(SELECT_PLOTS)\n    else:\n        rows = conn.execute(SELECT_PLOTS + \" WHERE farm_id = ?\", (farm_id,))\n    return [dict(row) for row in rows]\n\n\ndef get_plot(conn: sqlite3.Connection, plot_id: str) -> dict | None:\n    row = conn.execute(SELECT_PLOTS + \" WHERE id = ?\", (plot_id,)).fetchone()\n    return dict(row) if row else None\n\n\ndef create_plot(conn: sqlite3.Connection, fields: dict) -> dict:\n    plot = {\"id\": str(uuid4()), **fields}\n    with conn:\n        conn.execute(INSERT_PLOT, plot)\n    return plot\n\n\ndef update_plot(conn: sqlite3.Connection, plot_id: str, changes: dict) -> bool:\n    if not changes.keys() <= UPDATABLE_COLUMNS:\n        raise ValueError(f\"Not updatable: {changes.keys() - UPDATABLE_COLUMNS}\")\n    assignments = \", \".join(f\"{column} = :{column}\" for column in changes)\n    with conn:\n        cursor = conn.execute(f\"UPDATE plots SET {assignments} WHERE id = :id\", {**changes, \"id\": plot_id})\n    return cursor.rowcount == 1\n\n\ndef delete_plot(conn: sqlite3.Connection, plot_id: str) -> bool:\n    with conn:\n        cursor = conn.execute(\"DELETE FROM plots WHERE id = ?\", (plot_id,))\n    return cursor.rowcount == 1\n", "seed_registry.sh": "#!/usr/bin/env bash\n# Build a small SQLite file for registry-service.\n# Safe to run again: it deletes the file and writes a fresh one.\n#\n# Usage, from services/registry-service:\n#   bash seed_registry.sh\n#   bash seed_registry.sh /path/to/registry.db\n\nset -euo pipefail\n\nif ! command -v sqlite3 >/dev/null 2>&1; then\n  echo \"sqlite3 is not installed.\" >&2\n  exit 1\nfi\n\ndb=\"${1:-registry.db}\"\nrm -f \"$db\"\n\nsqlite3 \"$db\" <<'SQL'\nPRAGMA foreign_keys = ON;\n\nCREATE TABLE farms (\n  id   TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n\nCREATE TABLE crops (\n  id   TEXT PRIMARY KEY,\n  name TEXT NOT NULL\n);\n\nCREATE TABLE soils (\n  id                         TEXT PRIMARY KEY,\n  name                       TEXT NOT NULL,\n  available_water_mm_per_m   INTEGER NOT NULL\n);\n\nCREATE TABLE emitters (\n  id       TEXT PRIMARY KEY,\n  name     TEXT NOT NULL,\n  flow_lph REAL NOT NULL\n);\n\nCREATE TABLE plots (\n  id                 TEXT PRIMARY KEY,\n  farm_id            TEXT NOT NULL REFERENCES farms(id),\n  name               TEXT NOT NULL,\n  area_m2            REAL NOT NULL,\n  crop_id            TEXT NOT NULL REFERENCES crops(id),\n  planting_date      TEXT NOT NULL,\n  soil_id            TEXT NOT NULL REFERENCES soils(id),\n  row_spacing_m      REAL NOT NULL,\n  emitter_spacing_m  REAL NOT NULL,\n  emitter_id         TEXT NOT NULL REFERENCES emitters(id),\n  lat                REAL NOT NULL,\n  lon                REAL NOT NULL,\n  UNIQUE (farm_id, name)\n);\n\nINSERT INTO crops (id, name) VALUES\n  ('tomato', 'Tomato'),\n  ('bell-pepper', 'Bell pepper');\n\nINSERT INTO soils (id, name, available_water_mm_per_m) VALUES\n  ('sand', 'Sand', 83),\n  ('loam', 'Loam', 175),\n  ('clay-loam', 'Clay loam', 200);\n\nINSERT INTO emitters (id, name, flow_lph) VALUES\n  ('dripnet-pc-0.6', 'DripNet PC', 0.6),\n  ('dripnet-pc-1.0', 'DripNet PC', 1.0),\n  ('dripnet-pc-1.6', 'DripNet PC', 1.6),\n  ('dripnet-pc-2.0', 'DripNet PC', 2.0);\n\nINSERT INTO farms (id, name) VALUES\n  ('b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001', 'Demo cooperative'),\n  ('a9c1e4b2-6f70-4d8e-a144-3f8b5c904004', 'East farm');\n\nINSERT INTO plots (\n  id, farm_id, name, area_m2, crop_id, planting_date, soil_id,\n  row_spacing_m, emitter_spacing_m, emitter_id, lat, lon\n) VALUES\n  (\n    'c8f3d1b0-4d2e-5a1b-8b22-1d6e3f702002',\n    'b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001',\n    'North block', 1000, 'tomato', '2026-03-01', 'loam',\n    1.5, 0.4, 'dripnet-pc-1.0', 31.25, 34.79\n  ),\n  (\n    'd9a4e2c1-5e3f-4b6a-9c33-2e7f4a803003',\n    'b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001',\n    'East block', 800, 'bell-pepper', '2026-04-12', 'clay-loam',\n    1.5, 0.4, 'dripnet-pc-1.6', 31.26, 34.80\n  ),\n  (\n    'e0b5f3d2-6f40-4c7b-8d44-3f8a5b914004',\n    'a9c1e4b2-6f70-4d8e-a144-3f8b5c904004',\n    'West block', 1500, 'tomato', '2026-02-15', 'sand',\n    1.5, 0.4, 'dripnet-pc-0.6', 31.40, 34.60\n  ),\n  (\n    'f1c6a4e3-7051-4d8c-9e55-4a9b6c025005',\n    'a9c1e4b2-6f70-4d8e-a144-3f8b5c904004',\n    'Greenhouse', 400, 'bell-pepper', '2026-05-01', 'loam',\n    1.2, 0.3, 'dripnet-pc-2.0', 31.41, 34.61\n  );\nSQL\n\necho \"Wrote $db\"\necho \"  2 farms, 4 plots, 2 crops, 3 soils, 4 emitters\"\n"};
+var VERSIONS = "FastAPI 0.162.0 · Starlette 1.10.0 · Pydantic 2.14.2 · uvicorn 0.54.0 · Python 3.12.13 · SQLite 3.53.1";
+
+var FILES = {};
+Object.keys(SRC).forEach(function (k) { FILES[k] = SRC[k].replace(/\n$/, "").split("\n"); });
+var MISSING = [];
+function ln(file, needle, from) {
+  var lines = FILES[file];
+  for (var i = (from || 1) - 1; i < lines.length; i++) {
+    if (lines[i].indexOf(needle) !== -1) return i + 1;
+  }
+  MISSING.push(file + " :: " + needle);
+  return 1;
+}
+
+var M = "main.py", D = "db.py", SC = "schemas.py",
+    RC = "routers/catalogues.py", RF = "routers/farms.py", RP = "routers/plots.py",
+    PC = "repositories/catalogues.py", PF = "repositories/farms.py", PP = "repositories/plots.py",
+    SEED = "seed_registry.sh";
+
+var L = {};
+L.m_imp_db = ln(M, "from db import is_unavailable");
+L.m_imp_rt = ln(M, "from routers import");
+L.m_app = ln(M, "app = FastAPI(");
+L.m_inc1 = ln(M, "app.include_router(farms.router)");
+L.m_inc3 = ln(M, "app.include_router(catalogues.router)");
+L.m_exh = ln(M, "@app.exception_handler(sqlite3.DatabaseError)");
+L.m_exh_end = ln(M, "HTTPException(status_code=503", L.m_exh) + 1;
+L.m_health = ln(M, '@app.get("/health")');
+
+L.d_path = ln(D, "DEFAULT_DB_PATH = ");
+L.d_unav_end = ln(D, "SQLITE_READONLY") + 1;
+L.d_gpath = ln(D, "return Path(os.environ.get(");
+L.d_def = ln(D, "def get_db()");
+L.d_uri = ln(D, "uri = get_db_path()");
+L.d_conn = ln(D, "sqlite3.connect(uri");
+L.d_try = ln(D, "try:", L.d_def);
+L.d_row = ln(D, "row_factory");
+L.d_pragma = ln(D, "PRAGMA foreign_keys");
+L.d_yield = ln(D, "yield conn");
+L.d_finally = ln(D, "finally:", L.d_def);
+L.d_close = ln(D, "conn.close()");
+L.d_dep = ln(D, "DbConnection = Annotated");
+
+L.s_future = ln(SC, "def not_in_future");
+L.s_future_cmp = ln(SC, "date.fromisoformat(value) > date.today()");
+L.s_future_ret = ln(SC, "return value", L.s_future);
+L.s_name = ln(SC, "Name = Annotated");
+L.s_pos = ln(SC, "PositiveNumber = Annotated");
+L.s_lat = ln(SC, "Latitude = Annotated");
+L.s_lon = ln(SC, "Longitude = Annotated");
+L.s_date = ln(SC, "PlantingDate = Annotated");
+L.s_crop = ln(SC, "class Crop(BaseModel):");
+L.s_emitter = ln(SC, "class Emitter(BaseModel):");
+L.s_emitter_end = ln(SC, "flow_lph: float", L.s_emitter);
+L.s_fc = ln(SC, "class FarmCreate(BaseModel):");
+L.s_fc_name = ln(SC, "name: Name", L.s_fc);
+L.s_farm = ln(SC, "class Farm(BaseModel):");
+L.s_farm_end = ln(SC, "name: str", L.s_farm);
+L.s_pc = ln(SC, "class PlotCreate(BaseModel):");
+L.s_pc_cfg = ln(SC, 'model_config = ConfigDict(extra="forbid")', L.s_pc);
+L.s_pc_farm = ln(SC, "farm_id: UUID", L.s_pc);
+L.s_pc_name = ln(SC, "name: Name", L.s_pc);
+L.s_pc_area = ln(SC, "area_m2: PositiveNumber", L.s_pc);
+L.s_pc_crop = ln(SC, "crop_id: str", L.s_pc);
+L.s_pc_date = ln(SC, "planting_date: PlantingDate", L.s_pc);
+L.s_pc_soil = ln(SC, "soil_id: str", L.s_pc);
+L.s_pc_row = ln(SC, "row_spacing_m: PositiveNumber", L.s_pc);
+L.s_pc_esp = ln(SC, "emitter_spacing_m: PositiveNumber", L.s_pc);
+L.s_pc_eid = ln(SC, "emitter_id: str", L.s_pc);
+L.s_pc_lat = ln(SC, "lat: Latitude", L.s_pc);
+L.s_pc_lon = ln(SC, "lon: Longitude", L.s_pc);
+L.s_plot = ln(SC, "class Plot(BaseModel):");
+L.s_plot_end = ln(SC, "lon: float", L.s_plot);
+
+L.rc_router = ln(RC, "router = APIRouter(");
+L.rc_crops_dec = ln(RC, '@router.get("/crops", ');
+L.rc_crop_dec = ln(RC, '@router.get("/crops/{crop_id}"');
+L.rc_crop_def = ln(RC, "def get_crop(");
+L.rc_crop_call = ln(RC, "crop = catalogue_repository.get_crop(");
+L.rc_crop_if = ln(RC, "if crop is None:");
+L.rc_crop_raise = ln(RC, 'detail="Crop not found"');
+L.rc_em_dec = ln(RC, '@router.get("/emitters", ');
+L.rc_em_def = ln(RC, "def list_emitters(");
+L.rc_em_ret = ln(RC, "return catalogue_repository.list_emitters(conn)");
+
+L.rf_router = ln(RF, "router = APIRouter(");
+L.rf_dec = ln(RF, '@router.post("", status_code=201');
+L.rf_def = ln(RF, "def create_farm(");
+L.rf_ret = ln(RF, "return farm_repository.create_farm(conn, body.name)");
+
+L.rp_router = ln(RP, "router = APIRouter(");
+L.rp_ck_def = ln(RP, "def check_references(");
+L.rp_ck_farm = ln(RP, 'if "farm_id" in fields');
+L.rp_ck_crop = ln(RP, 'if "crop_id" in fields');
+L.rp_ck_soil = ln(RP, 'if "soil_id" in fields');
+L.rp_ck_em = ln(RP, 'if "emitter_id" in fields');
+L.rp_ck_end = ln(RP, 'detail="Unknown emitter"');
+L.rp_rie_def = ln(RP, "def raise_for_integrity_error(");
+L.rp_rie_uniq = ln(RP, 'if exc.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE"');
+L.rp_rie_409 = ln(RP, "status_code=409");
+L.rp_dec = ln(RP, '@router.post("", status_code=201');
+L.rp_def = ln(RP, "def create_plot(");
+L.rp_dump = ln(RP, 'fields = body.model_dump(mode="json")');
+L.rp_check = ln(RP, "check_references(conn, fields)", L.rp_def);
+L.rp_try = ln(RP, "try:", L.rp_def);
+L.rp_create = ln(RP, "return plot_repository.create_plot(conn, fields)");
+L.rp_except = ln(RP, "except sqlite3.IntegrityError as exc:", L.rp_def);
+L.rp_rie_call = ln(RP, "raise_for_integrity_error(exc)", L.rp_except);
+
+L.pc_get_crop = ln(PC, "def get_crop(");
+L.pc_get_crop_sql = ln(PC, "SELECT id, name FROM crops WHERE id = ?");
+L.pc_get_crop_ret = ln(PC, "return dict(row) if row else None", L.pc_get_crop);
+L.pc_get_soil_sql = ln(PC, "SELECT id, name, available_water_mm_per_m FROM soils WHERE id = ?");
+L.pc_get_em_sql = ln(PC, "SELECT id, name, flow_lph FROM emitters WHERE id = ?");
+L.pc_list_em = ln(PC, 'FROM emitters")]');
+
+L.pf_get = ln(PF, "def get_farm(");
+L.pf_get_sql = ln(PF, "SELECT id, name FROM farms WHERE id = ?");
+L.pf_get_ret = ln(PF, "return dict(row) if row else None", L.pf_get);
+L.pf_cr = ln(PF, "def create_farm(");
+L.pf_cr_dict = ln(PF, 'farm = {"id": str(uuid4())');
+L.pf_cr_with = ln(PF, "with conn:", L.pf_cr);
+L.pf_cr_ins = ln(PF, "INSERT INTO farms");
+L.pf_cr_ret = ln(PF, "return farm", L.pf_cr);
+
+L.pp_ins = ln(PP, 'INSERT_PLOT = """');
+L.pp_ins_end = ln(PP, '"""', L.pp_ins + 1);
+L.pp_cr = ln(PP, "def create_plot(");
+L.pp_cr_dict = ln(PP, 'plot = {"id": str(uuid4()), **fields}');
+L.pp_cr_with = ln(PP, "with conn:", L.pp_cr);
+L.pp_cr_exec = ln(PP, "conn.execute(INSERT_PLOT, plot)");
+L.pp_cr_ret = ln(PP, "return plot", L.pp_cr);
+
+L.seed_plots = ln(SEED, "CREATE TABLE plots (");
+L.seed_fk_farm = ln(SEED, "REFERENCES farms(id)");
+L.seed_fk_crop = ln(SEED, "REFERENCES crops(id)");
+L.seed_fk_soil = ln(SEED, "REFERENCES soils(id)");
+L.seed_fk_em = ln(SEED, "REFERENCES emitters(id)");
+L.seed_unique = ln(SEED, "UNIQUE (farm_id, name)");
+L.seed_farms = ln(SEED, "CREATE TABLE farms (");
+L.seed_north = ln(SEED, "'North block', 1000");
+
+/* ---------- lanes (the columns of the sequence diagram) ---------- */
+var LANES = [
+  { k: "client", t: "Client", s: "curl" },
+  { k: "uvicorn", t: "uvicorn", s: "ASGI server" },
+  { k: "fastapi", t: "FastAPI", s: "main.app" },
+  { k: "deps", t: "db.py", s: "get_db" },
+  { k: "schemas", t: "schemas.py", s: "Pydantic" },
+  { k: "router", t: "Router", s: "routers/" },
+  { k: "repo", t: "Repository", s: "repositories/" },
+  { k: "sqlite", t: "SQLite", s: "registry.db" }
+];
+var PHASES = {
+  startup: "⏻ עליית השרת · רץ פעם אחת",
+  "in": "→ הבקשה נכנסת",
+  work: "⚙ הקוד שלנו",
+  out: "← התשובה יוצאת"
+};
+
+/* ---------- scenarios ---------- */
+var SCEN = [
+  { key: "startup", st: "boot", label: "הפעלת השרת", nm: "uvicorn main:app" },
+  { key: "emitters", st: "200", label: "קריאה מהקטלוג", nm: "GET /v1/emitters" },
+  { key: "farm", st: "201", label: "יצירת חווה", nm: "POST /v1/farms" },
+  { key: "plot", st: "201", label: "יצירת חלקה", nm: "POST /v1/plots" },
+  { key: "invalid", st: "422", label: "שדה לא תקין", nm: "area_m2 = -5" },
+  { key: "missing", st: "404", label: "רשומה חסרה", nm: "GET /v1/crops/unknown" },
+  { key: "duplicate", st: "409", label: "שם חלקה כפול", nm: "North block" }
+];
+
+var FARM_ID = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001";
+var PLOT_BODY = { farm_id: FARM_ID, name: "South block", area_m2: 1000, crop_id: "tomato",
+  planting_date: "2026-03-01", soil_id: "loam", row_spacing_m: 1.5, emitter_spacing_m: 0.4,
+  emitter_id: "dripnet-pc-1.0", lat: 31.25, lon: 34.79 };
+function withField(o, k, v) { var c = {}; Object.keys(o).forEach(function (x) { c[x] = o[x]; }); c[k] = v; return c; }
+
+var CFG = {
+  emitters: { method: "GET", path: "/v1/emitters", rfile: RC, prefix: L.rc_router, dec: L.rc_em_dec, def: L.rc_em_def, fn: "list_emitters", status: 200, model: "list[Emitter]" },
+  farm: { method: "POST", path: "/v1/farms", body: { name: "Presentation Demo Farm" }, rfile: RF, prefix: L.rf_router, dec: L.rf_dec, def: L.rf_def, fn: "create_farm", status: 201, model: "Farm", bodyModel: "FarmCreate" },
+  plot: { method: "POST", path: "/v1/plots", body: PLOT_BODY, rfile: RP, prefix: L.rp_router, dec: L.rp_dec, def: L.rp_def, fn: "create_plot", status: 201, model: "Plot", bodyModel: "PlotCreate" },
+  invalid: { method: "POST", path: "/v1/plots", body: withField(PLOT_BODY, "area_m2", -5), rfile: RP, prefix: L.rp_router, dec: L.rp_dec, def: L.rp_def, fn: "create_plot", status: 201, model: "Plot", bodyModel: "PlotCreate" },
+  missing: { method: "GET", path: "/v1/crops/unknown", routePath: "/v1/crops/{crop_id}", rfile: RC, prefix: L.rc_router, dec: L.rc_crop_dec, def: L.rc_crop_def, fn: "get_crop", status: 200, model: "Crop" },
+  duplicate: { method: "POST", path: "/v1/plots", body: withField(PLOT_BODY, "name", "North block"), rfile: RP, prefix: L.rp_router, dec: L.rp_dec, def: L.rp_def, fn: "create_plot", status: 201, model: "Plot", bodyModel: "PlotCreate" }
+};
+
+/* Real responses, captured from uvicorn with `curl -i` against a freshly seeded database.
+   The JSON on the wire is compact; it is pretty-printed here for reading. */
+var RESP = {
+  emitters: { status: 200, reason: "OK", len: 237, port: 50421,
+    body: '[\n  {"id": "dripnet-pc-0.6", "name": "DripNet PC", "flow_lph": 0.6},\n  {"id": "dripnet-pc-1.0", "name": "DripNet PC", "flow_lph": 1.0},\n  {"id": "dripnet-pc-1.6", "name": "DripNet PC", "flow_lph": 1.6},\n  {"id": "dripnet-pc-2.0", "name": "DripNet PC", "flow_lph": 2.0}\n]' },
+  farm: { status: 201, reason: "Created", len: 77, port: 50422,
+    body: '{\n  "id": "f1a6b883-567b-4e43-95bf-d7095e1b5b42",\n  "name": "Presentation Demo Farm"\n}' },
+  plot: { status: 201, reason: "Created", len: 295, port: 50423,
+    body: '{\n  "id": "8f6c6009-cd0e-49b0-b2d2-96d301816334",\n  "farm_id": "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001",\n  "name": "South block",\n  "area_m2": 1000.0,\n  "crop_id": "tomato",\n  "planting_date": "2026-03-01",\n  "soil_id": "loam",\n  "row_spacing_m": 1.5,\n  "emitter_spacing_m": 0.4,\n  "emitter_id": "dripnet-pc-1.0",\n  "lat": 31.25,\n  "lon": 34.79\n}' },
+  invalid: { status: 422, reason: "Unprocessable Entity", len: 128, port: 50424,
+    body: '{\n  "detail": [\n    {\n      "type": "greater_than",\n      "loc": ["body", "area_m2"],\n      "msg": "Input should be greater than 0",\n      "input": -5,\n      "ctx": {"gt": 0.0}\n    }\n  ]\n}' },
+  missing: { status: 404, reason: "Not Found", len: 27, port: 50425,
+    body: '{\n  "detail": "Crop not found"\n}' },
+  duplicate: { status: 409, reason: "Conflict", len: 50, port: 50426,
+    body: '{\n  "detail": "Plot name already exists on this farm"\n}' }
+};
+
+var TERMINAL = [
+  "$ cd services/registry-service",
+  "$ uv run uvicorn main:app --host 127.0.0.1 --port 8000",
+  "INFO:     Started server process [74642]",
+  "INFO:     Waiting for application startup.",
+  "INFO:     Application startup complete.",
+  "INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)"
+].join("\n");
+
+function requestText(k) {
+  var c = CFG[k];
+  var lines = [c.method + " " + c.path + " HTTP/1.1", "Host: 127.0.0.1:8000", "User-Agent: curl/8.7.1", "Accept: */*"];
+  if (c.body) {
+    lines.push("Content-Type: application/json", "Content-Length: " + JSON.stringify(c.body).length, "", JSON.stringify(c.body, null, 2));
+  }
+  return lines.join("\n");
+}
+function responseText(k) {
+  var r = RESP[k];
+  return ["HTTP/1.1 " + r.status + " " + r.reason, "date: " + new Date().toUTCString(), "server: uvicorn",
+    "content-length: " + r.len, "content-type: application/json", "", r.body].join("\n");
+}
+function accessLog(k) {
+  var c = CFG[k], r = RESP[k];
+  return 'INFO: 127.0.0.1:' + r.port + ' - "' + c.method + " " + c.path + ' HTTP/1.1" ' + r.status + " " + r.reason;
+}
+
+function q(s) { return "'" + s + "'"; }
+function todayIso() {
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function fr(fn, file, line) { return fn + "   " + file + ":" + line; }
+function span(a, b) { var out = []; for (var i = a; i <= b; i++) out.push(i); return out; }
+
+/* Framework frames. Names are the real functions in the installed libraries (see VERSIONS). */
+var F_IMPORT = "uvicorn · Config.load → import_from_string('main:app')";
+var F_UV = "uvicorn · RequestResponseCycle.run_asgi   (h11_impl.py)";
+var F_MW = "starlette · ServerErrorMiddleware → ExceptionMiddleware → Router";
+var F_RR = "fastapi · request_response.app   (routing.py · exit stacks)";
+var F_RH = "fastapi · get_request_handler.app   (routing.py)";
+var F_SD = "fastapi · solve_dependencies   (dependencies/utils.py)";
+var F_CM = "fastapi · contextmanager_in_threadpool   [worker thread]";
+var F_TP = "anyio · run_in_threadpool   [worker thread]";
+var F_RE = "fastapi · run_endpoint_function   (routing.py)";
+var F_SER = "fastapi · serialize_response   (routing.py)";
+var F_WR = "starlette · wrap_app_handling_exceptions   (_exception_handler.py)";
+function F_PYD(m) { return "pydantic-core · " + m + " validator"; }
+var BASE = [F_RH, F_RR, F_MW, F_UV];
+var EP = [F_TP, F_RE].concat(BASE);
+function dead(list) { return list.map(function (t) { return { t: t, dead: true }; }); }
+
+/* ---------- startup ---------- */
+function buildStartup() {
+  var S = [];
+  function P(o) { o.phase = "startup"; S.push(o); }
+  P({ at: "uvicorn", file: "terminal", line: 2, range: [1, 2], act: "Launch",
+    arrows: [["uvicorn", "fastapi", "call", "import main"]],
+    title: "uvicorn מפעיל את השירות",
+    text: `הרצנו את הפקודה שמפעילה את השרת. הדבר הראשון ש-uvicorn עושה הוא לטעון את הקוד שלנו מהקובץ <code>main.py</code>, כדי למצוא בו את האפליקציה <code>app</code>.`,
+    why: `uvicorn הוא השרת: הוא מקבל בקשות מהרשת, אבל לא יודע מה לעשות איתן. בשביל זה הוא צריך את <code>app</code> שלנו.`,
+    flow: `uvicorn מבקש מפייתון לטעון את <code>main.py</code>. כל הצעדים בתרחיש הזה קורים פעם אחת, כשהשרת עולה, לפני שהגיעה בקשה כלשהי.`,
+    tech: [`<code>main:app</code> פירושו: הקובץ <code>main.py</code>, והמשתנה <code>app</code> שבתוכו.`, `טעינה (import) של קובץ בפייתון מריצה את כל השורות שלו, מלמעלה למטה. כך נוצרים המשתנים והפונקציות שבו.`, `פייתון מחפש את <code>main.py</code> בתיקייה הנוכחית. השירות לא מותקן כחבילה (<code>package = false</code> ב-<code>pyproject.toml</code>), ולכן מריצים מתוך <code>services/registry-service</code>.`],
+    vars: [["command", "'uv run uvicorn main:app --host 127.0.0.1 --port 8000'"], ["cwd", "'services/registry-service'"], ["module", "'main'"], ["attribute", "'app'"]],
+    stack: [F_IMPORT] });
+  P({ at: "fastapi", file: M, line: L.m_imp_db, range: [1, L.m_imp_db], act: "Import",
+    arrows: [["fastapi", "deps", "call", "import db"]],
+    title: "main.py טוען את db.py",
+    text: `<code>main.py</code> צריך פונקציה שנמצאת בקובץ <code>db.py</code>. לכן פייתון עוצר את <code>main.py</code> לרגע, מריץ את כל <code>db.py</code>, ורק אז חוזר וממשיך.`,
+    why: `<code>main.py</code> צריך את <code>is_unavailable</code> כדי להחליט אם שגיאה של המסד פירושה "המסד לא זמין". נראה את זה בהמשך התרחיש.`,
+    flow: `פייתון עובר מ-<code>main.py</code> (שורה ${L.m_imp_db}) אל <code>db.py</code>. כשיסיים את <code>db.py</code>, הוא יחזור לשורה הבאה ב-<code>main.py</code>.`,
+    tech: [`<code>from db import is_unavailable</code> מריץ את <code>db.py</code>, ואז לוקח ממנו את השם <code>is_unavailable</code>.`],
+    vars: [["__name__", "'main'"]],
+    stack: [fr("<module>", M, L.m_imp_db), F_IMPORT] });
+  P({ at: "deps", file: D, line: L.d_path, range: [L.d_path, L.d_unav_end], act: "Define",
+    title: "db.py מכין הגדרות לשימוש בהמשך",
+    text: `<code>db.py</code> שומר את המיקום של קובץ המסד, ורשימה של שגיאות שפירושן "המסד לא זמין". הוא גם מגדיר את הפונקציה <code>get_db</code>, שתפתח חיבור למסד, אבל לא מפעיל אותה.`,
+    why: `את המיקום ואת הרשימה מחשבים פעם אחת. כל הבקשות שיגיעו אחר כך ישתמשו באותם ערכים.`,
+    flow: `פייתון עדיין בתוך <code>db.py</code>. הקוד שבתוך <code>get_db</code> לא רץ עכשיו. הוא ירוץ רק כש-FastAPI יקרא לה, בתחילת כל בקשה.`,
+    tech: [`<code>DEFAULT_DB_PATH</code>: הנתיב ל-<code>registry.db</code>, באותה תיקייה של <code>db.py</code>.`, `<code>UNAVAILABLE_ERROR_NAMES</code>: שמות של קודי שגיאה של SQLite, למשל <code>SQLITE_CANTOPEN</code> (אי אפשר לפתוח את הקובץ).`, `כשפייתון מגיע לשורה <code>def</code>, הוא יוצר אובייקט פונקציה ושומר אותו בשם. הגוף של הפונקציה רץ רק כשקוראים לה.`],
+    does: "define",
+    vars: [["DEFAULT_DB_PATH", "PosixPath('…/registry-service/registry.db')"], ["UNAVAILABLE_ERROR_NAMES", "('SQLITE_CANTOPEN', …, 'SQLITE_READONLY')"], ["get_db", "<function get_db>"]],
+    stack: [fr("<module>", D, L.d_path), fr("<module>", M, L.m_imp_db), F_IMPORT] });
+  P({ at: "deps", file: D, line: L.d_dep, act: "Define",
+    title: "מגדירים איך פונקציות יקבלו חיבור למסד",
+    text: `בשורה הזאת מגדירים שם קצר, <code>DbConnection</code>, שמתאר איך פונקציות בשירות יקבלו חיבור למסד הנתונים. עדיין לא נפתח שום חיבור: רק מגדירים איך לקבל אותו.`,
+    why: `כל פונקציה שעובדת מול SQLite צריכה חיבור. במקום לכתוב בכל פונקציה מחדש איך מקבלים אותו, מגדירים את זה פעם אחת.`,
+    flow: `בהמשך, כשתגיע בקשה לפונקציה עם הפרמטר <code>conn: DbConnection</code>, FastAPI יפעיל את <code>get_db</code>. היא תפתח חיבור ל-SQLite, ו-FastAPI יעביר אותו לפרמטר <code>conn</code>. בסוף הבקשה החיבור ייסגר.`,
+    tech: [`<code>sqlite3.Connection</code>: הטיפוס של הערך שנקבל, כלומר אובייקט חיבור של SQLite.`, `<code>Depends(get_db)</code>: אומר ל-FastAPI מאיפה להביא את הערך. מריצים את <code>get_db</code> ולוקחים את מה שהיא נותנת.`, `<code>Annotated[X, Y]</code>: מצמיד לטיפוס <code>X</code> מידע נוסף, <code>Y</code>. לפייתון עצמה המידע הזה לא משנה כלום. FastAPI הוא שקורא אותו.`, `<code>DbConnection</code>: שם לשימוש חוזר. לכתוב <code>conn: DbConnection</code> זה בדיוק כמו לכתוב <code>conn: Annotated[sqlite3.Connection, Depends(get_db)]</code>.`],
+    does: "define",
+    vars: [["DbConnection", "Annotated[Connection, Depends(get_db)]"], ["open connections", "0"]],
+    stack: [fr("<module>", D, L.d_dep), fr("<module>", M, L.m_imp_db), F_IMPORT] });
+  P({ at: "fastapi", file: M, line: L.m_imp_rt, act: "Import",
+    arrows: [["deps", "fastapi", "ret", "module db"], ["fastapi", "router", "call", "import catalogues, farms, plots"]],
+    title: "main.py טוען את שלושת ה-routers",
+    text: `פייתון חוזר ל-<code>main.py</code> וטוען את שלושת קבצי ה-router: קטלוגים, חוות וחלקות. כל router הוא קובץ שמגדיר קבוצה של כתובות, ואיזו פונקציה מטפלת בכל כתובת.`,
+    why: `החלוקה לקבצים שומרת על סדר: כל קובץ אחראי על נושא אחד, ו-<code>main.py</code> רק מחבר ביניהם.`,
+    flow: `פייתון מריץ את <code>routers/catalogues.py</code>, אחריו את <code>farms.py</code>, ואחריו את <code>plots.py</code>. כל router טוען בעצמו את <code>schemas.py</code> ואת ה-repository שלו.`,
+    tech: [`פייתון מריץ כל קובץ רק בפעם הראשונה שטוענים אותו. בטעינה הבאה הוא משתמש במה שכבר שמור בזיכרון (<code>sys.modules</code>). לכן <code>schemas.py</code> רץ פעם אחת, למרות ששלושת ה-routers טוענים אותו.`],
+    vars: [["importing", "routers/catalogues.py"]],
+    stack: [fr("<module>", M, L.m_imp_rt), F_IMPORT] });
+  P({ at: "schemas", file: SC, line: L.s_name, range: [L.s_name, L.s_date], act: "Define",
+    arrows: [["router", "schemas", "call", "import schemas"]],
+    title: "schemas.py מגדיר כללים לבדיקת נתונים",
+    text: `<code>schemas.py</code> מגדיר כללים שחוזרים על עצמם. למשל: שם לא יכול להיות ריק, שטח חייב להיות גדול מ-0, וקו רוחב חייב להיות בין ‎-90 ל-90.`,
+    why: `כותבים כל כלל פעם אחת, וכל שדה שצריך אותו משתמש בו. כך <code>PlotCreate</code> ו-<code>PlotUpdate</code> בודקים בדיוק אותו דבר.`,
+    flow: `הקובץ נטען כי <code>routers/catalogues.py</code> טוען ממנו מודלים (שורה 5). שום בדיקה לא רצה עכשיו. רק מגדירים את הכללים.`,
+    tech: [`<code>Name</code>, <code>PositiveNumber</code>, <code>Latitude</code>, <code>Longitude</code> ו-<code>PlantingDate</code> הם שמות קיצור, כמו <code>DbConnection</code>.`, `גם כאן <code>Annotated</code> מצמיד מידע לטיפוס, אבל הפעם Pydantic הוא שקורא אותו, והמידע הוא כלל בדיקה. למשל, <code>Annotated[float, Field(gt=0)]</code> פירושו מספר עשרוני גדול מ-0.`, `<code>strict=True</code>: לא להמיר טקסט כמו <code>"1000"</code> למספר. מספר חייב להגיע כמספר.`],
+    does: "define",
+    vars: [["PositiveNumber", "float, gt=0, strict=True"], ["Latitude", "float, -90 … 90"], ["PlantingDate", "str, YYYY-MM-DD, not_in_future"]],
+    stack: [fr("<module>", SC, L.s_name), fr("<module>", RC, 5), fr("<module>", M, L.m_imp_rt), F_IMPORT] });
+  P({ at: "schemas", file: SC, line: L.s_pc, range: [L.s_pc, L.s_pc_lon], act: "Define",
+    title: "Pydantic מכין את המודלים",
+    text: `כל מחלקה ב-<code>schemas.py</code>, למשל <code>PlotCreate</code>, מתארת איך נתונים צריכים להיראות: אילו שדות, ואיזה כלל לכל שדה. Pydantic קורא את התיאור הזה ומכין ממנו בודק מוכן לשימוש.`,
+    why: `<code>schemas.py</code> לא מקבל בקשות ולא מפעיל קוד בעצמו. FastAPI ישתמש בבודקים האלה בכל בקשה: פעם אחת לקלט שנכנס, ופעם אחת לתשובה שיוצאת.`,
+    flow: `הבודק נבנה פעם אחת, עכשיו. בכל בקשה FastAPI רק יפעיל אותו על הנתונים.`,
+    tech: [`<code>class PlotCreate(BaseModel)</code>: מחלקה שיורשת מ-<code>BaseModel</code> של Pydantic. כל שדה מוגדר עם טיפוס, למשל <code>area_m2: PositiveNumber</code>.`, `הבודק עצמו כתוב ב-Rust, בספרייה <code>pydantic-core</code>, ולכן הוא מהיר.`, `<code>extra="forbid"</code>: שדה שלא מופיע במודל ייחשב לשגיאה.`],
+    does: "define",
+    vars: [["models", "Crop, Soil, Emitter, FarmCreate, FarmUpdate, Farm, PlotCreate, PlotUpdate, Plot"], ["PlotCreate fields", "11 (all required)"]],
+    stack: [fr("<module>", SC, L.s_pc), fr("<module>", RC, 5), fr("<module>", M, L.m_imp_rt), F_IMPORT] });
+  P({ at: "router", file: RC, line: L.rc_crops_dec, range: [L.rc_router, L.rc_crops_dec + 2], act: "Register",
+    arrows: [["schemas", "router", "ret", "Crop, Emitter, Soil"]],
+    title: "נרשמות הכתובות של הקטלוגים",
+    text: `ה-router של הקטלוגים רושם לעצמו כתובות. לדוגמה: בקשת <code>GET</code> לכתובת <code>/v1/crops</code> תגיע לפונקציה <code>list_crops</code>.`,
+    why: `כשתגיע בקשה, FastAPI יצטרך לדעת לאיזו פונקציה לשלוח אותה. הרישום הזה הוא "ספר הכתובות" שלו.`,
+    flow: `רק נרשמים. <code>list_crops</code> לא רצה עכשיו. היא תרוץ רק כשתגיע בקשה לכתובת שלה.`,
+    tech: [`<code>APIRouter(prefix="/v1")</code>: יוצר router שכל הכתובות שלו מתחילות ב-<code>/v1</code>.`, `שורה שמתחילה ב-<code>@</code> מעל <code>def</code> נקראת דקורטור. פייתון מריץ אותה פעם אחת, מיד אחרי שהוא מגדיר את הפונקציה שמתחתיה. כאן <code>@router.get(...)</code> רושם את הפונקציה ככתובת.`, `<code>response_model=list[Crop]</code>: נשמר עכשיו, וישמש לבדיקת התשובה בכל בקשה.`],
+    does: "register",
+    vars: [["router.prefix", "'/v1'"], ["routes", "/crops, /crops/{crop_id}, /soils, /soils/{soil_id}, /emitters, /emitters/{emitter_id}"]],
+    stack: [fr("<module>", RC, L.rc_crops_dec), fr("<module>", M, L.m_imp_rt), F_IMPORT] });
+  P({ at: "router", file: RP, line: L.rp_def, range: [L.rp_dec, L.rp_def], act: "Analyze",
+    arrows: [["router", "repo", "call", "import repositories.*"], ["repo", "router", "ret", "functions only"]],
+    title: "FastAPI מתכנן מה create_plot תצטרך",
+    text: `כשנרשמת הכתובת <code>POST /v1/plots</code>, FastAPI קורא את רשימת הפרמטרים של <code>create_plot</code>. כך הוא מחליט מראש מאיפה יגיע כל ערך: <code>body</code> מגוף הבקשה, ו-<code>conn</code> מ-<code>get_db</code>.`,
+    why: `כשתגיע בקשה, FastAPI כבר יידע מה להכין לפני שהוא מפעיל את <code>create_plot</code>. הוא לא מנתח את הפונקציה מחדש בכל בקשה.`,
+    flow: `שום דבר מזה לא רץ עכשיו: לא <code>create_plot</code>, לא <code>get_db</code> ולא ה-repositories. קבצי ה-repositories נטענים בשלב הזה, אבל הם רק מגדירים פונקציות.`,
+    tech: [`<code>body: PlotCreate</code>: הטיפוס הוא מודל של Pydantic, ולכן FastAPI יבנה את הערך מה-JSON שבגוף הבקשה.`, `<code>conn: DbConnection</code>: בטיפוס יש <code>Depends(get_db)</code>. FastAPI קורא לזה תלות (dependency): ערך שמגיע מפונקציה אחרת.`, `מהדקורטור FastAPI שומר גם את <code>status_code=201</code> ואת <code>response_model=Plot</code>.`, `את התוצאה FastAPI שומר באובייקט בשם <code>Dependant</code>. הניתוח קורה בזמן העלייה, לא בזמן בקשה.`],
+    does: "register",
+    vars: [["body", "← JSON body → PlotCreate"], ["conn", "← Depends(get_db)"], ["status_code", "201"], ["response_model", "Plot"]],
+    stack: [fr("<module>", RP, L.rp_dec), fr("<module>", M, L.m_imp_rt), F_IMPORT] });
+  P({ at: "fastapi", file: M, line: L.m_app, act: "Create",
+    arrows: [["router", "fastapi", "ret", "3 × router"]],
+    title: "נוצרת האפליקציה app",
+    text: `השורה הזאת יוצרת את <code>app</code>, האובייקט ש-uvicorn חיפש. תוך כדי, FastAPI מוסיף לה טיפול מובנה בשגיאות: הוא יודע להפוך שגיאות נפוצות לתשובות HTTP.`,
+    why: `בזכות הטיפול המובנה אין לנו קובץ שגיאות משלנו. FastAPI בונה לבד תשובות כמו <code>{"detail": "Crop not found"}</code>, והמרצה אישר שהפורמט הזה מספיק.`,
+    flow: `פייתון חזר ל-<code>main.py</code> אחרי שכל ה-routers נטענו. ל-<code>app</code> עדיין אין כתובות. הן יחוברו בצעד הבא.`,
+    tech: [`מטפל שגיאות (exception handler) הוא פונקציה שמקבלת שגיאה ומחזירה תשובת HTTP.`, `<code>http_exception_handler</code> מטפל ב-<code>HTTPException</code>, השגיאה שה-routers שלנו זורקים, למשל ב-404 וב-409.`, `<code>request_validation_exception_handler</code> מטפל בקלט שנכשל בבדיקה של Pydantic, ובונה תשובת 422.`, `ההבהרה של המרצה: <code>docs/instructor-clarifications.md</code>.`],
+    vars: [["app.title", "'AgroPilot registry-service'"], ["exception_handlers", "{HTTPException: http_exception_handler, RequestValidationError: request_validation_exception_handler, …}"]],
+    stack: [fr("<module>", M, L.m_app), F_IMPORT] });
+  P({ at: "fastapi", file: M, line: L.m_inc1, range: [L.m_inc1, L.m_inc3], act: "Register",
+    title: "מחברים את ה-routers לאפליקציה",
+    text: `שלוש השורות האלה מעתיקות לתוך <code>app</code> את הכתובות שכל router רשם. אחריהן, <code>app</code> מכירה את כל הכתובות של השירות.`,
+    why: `כשתגיע בקשה, FastAPI יחפש ברשימה הזאת כתובת ושיטה (<code>GET</code>, <code>POST</code> וכן הלאה) שמתאימות לה.`,
+    flow: `עדיין לא רצה אף פונקציה שמטפלת בבקשות. רק הרשימה של <code>app</code> מתעדכנת.`,
+    tech: [`<code>include_router</code> מוסיף את הכתובות של ה-router לרשימה <code>app.router.routes</code>, יחד עם ה-prefix שלו.`, `בסך הכול יש 16 כתובות תחת <code>/v1</code>.`],
+    does: "register",
+    vars: [["POST /v1/farms", "create_farm"], ["POST /v1/plots", "create_plot"], ["GET /v1/emitters", "list_emitters"], ["GET /v1/crops/{crop_id}", "get_crop"], ["total /v1 routes", "16"]],
+    stack: [fr("<module>", M, L.m_inc1), F_IMPORT] });
+  P({ at: "fastapi", file: M, line: L.m_exh, range: [L.m_exh, L.m_exh_end], act: "Register",
+    title: "נרשם טיפול בתקלות של המסד",
+    text: `כאן מוסיפים טיפול משלנו לשגיאות של SQLite. אם בזמן בקשה המסד לא יהיה זמין, הלקוח יקבל 503 עם הוראה לנסות שוב בעוד 5 שניות. כל שגיאה אחרת של SQLite תהפוך ל-500.`,
+    why: `קובץ מסד חסר או נעול הוא תקלה זמנית, ו-503 אומר ללקוח "נסה שוב מאוחר יותר". שגיאה אחרת, כמו טעות ב-SQL, היא באג אמיתי, ולכן 500.`,
+    flow: `רק נרשמים. <code>database_error_handler</code> לא רצה עכשיו. היא תרוץ רק אם בקשה כלשהי תיתקל בשגיאה של SQLite.`,
+    tech: [`<code>@app.exception_handler(sqlite3.DatabaseError)</code>: דקורטור שרושם את הפונקציה כמטפל בכל שגיאה מסוג <code>sqlite3.DatabaseError</code>, ובכל סוג שיורש ממנו.`, `<code>is_unavailable(exc)</code> בודקת אם <code>exc.sqlite_errorname</code> נמצא ברשימה <code>UNAVAILABLE_ERROR_NAMES</code>.`, `<code>raise exc</code> זורק את השגיאה הלאה, ו-Starlette הופך אותה ל-500.`, `בזכות המטפל הזה, אין צורך ב-<code>try/except</code> בכל endpoint.`],
+    does: "register",
+    vars: [["handlers[sqlite3.DatabaseError]", "database_error_handler"]],
+    stack: [fr("<module>", M, L.m_exh), F_IMPORT] });
+  P({ at: "uvicorn", file: "terminal", line: 6, range: [3, 6], act: "Listen", mode: "done",
+    arrows: [["fastapi", "uvicorn", "ret", "app"]],
+    title: "השרת מוכן ומחכה לבקשות",
+    text: `הטעינה של <code>main.py</code> הסתיימה, ו-uvicorn קיבל את <code>app</code>. מעכשיו הוא מחכה לבקשות בכתובת <code>127.0.0.1:8000</code>.`,
+    why: `כל מה שראינו בתרחיש הזה רץ פעם אחת, כשהשרת עלה. בתרחישים האחרים רואים מה רץ מחדש בכל בקשה.`,
+    flow: `uvicorn מחכה. עדיין לא נפתח אף חיבור ל-<code>registry.db</code>. החיבור הראשון ייפתח רק כשתגיע הבקשה הראשונה.`,
+    vars: [["listening", "'http://127.0.0.1:8000'"], ["open connections", "0"], ["requests served", "0"]],
+    stack: ["uvicorn · Server.serve   (waiting for connections)"],
+    final: { label: "מוכן", good: true } });
+  return S;
+}
+
+/* ---------- request scenarios ---------- */
+function build(k) {
+  if (k === "startup") return buildStartup();
+  var C = CFG[k], R = RESP[k];
+  var S = [], phase = "in";
+  function P(o) { o.phase = o.phase || phase; S.push(o); }
+  var reqN = requestText(k).split("\n").length;
+  var resN = responseText(k).split("\n").length;
+  var B = C.body;
+  function gd(l) { return [fr("get_db", D, l), F_CM, F_SD].concat(BASE); }
+  function ep(fn, file, l) { return [fr(fn, file, l)].concat(EP); }
+  var routeShown = C.routePath || C.path;
+
+  /* 1. the request leaves the client */
+  var notes = {
+    emitters: `זו בקשת קריאה בלבד, ולכן אין לה גוף.`,
+    farm: `בגוף יש שדה אחד, <code>name</code>. ה-<code>id</code> לא נשלח, כי השרת יוצר אותו.`,
+    plot: `בגוף יש את כל 11 השדות של חלקה חדשה. ארבעה מהם מצביעים על רשומות שכבר קיימות: <code>farm_id</code> על חווה, ו-<code>crop_id</code>, <code>soil_id</code> ו-<code>emitter_id</code> על הקטלוגים.`,
+    invalid: `הבקשה כמעט זהה ליצירת חלקה, עם שדה אחד שגוי: <code>area_m2</code> הוא <code>-5</code>, ושטח לא יכול להיות שלילי.`,
+    missing: `הכתובת מבקשת גידול בשם <code>unknown</code>, שלא קיים בקטלוג.`,
+    duplicate: `הבקשה תקינה, אבל השם תפוס: לחווה <code>b7e2c0a0-…</code> כבר יש חלקה בשם <code>North block</code> (היא נוצרה ב-<code>seed_registry.sh</code>).`
+  };
+  var reqVars = [["method", q(C.method)], ["path", q(C.path)]];
+  if (B) {
+    reqVars.push(["Content-Type", q("application/json")], ["Content-Length", String(JSON.stringify(B).length)]);
+    if (k === "farm") reqVars.push(["body.name", q(B.name)]);
+    else reqVars.push(["body.name", q(B.name)], ["body.area_m2", String(B.area_m2)], ["body.farm_id", q(B.farm_id)]);
+  }
+  P({ at: "client", file: "request.http", line: 1, range: [1, reqN], act: "Request",
+    arrows: [["client", "uvicorn", "in", C.method + " " + C.path + " HTTP/1.1"]],
+    title: "הלקוח שולח בקשה",
+    text: `הלקוח (כאן <code>curl</code>) שולח לשרת בקשה. הבקשה אומרת מה הוא רוצה: שיטה (<code>${C.method}</code>) וכתובת (<code>${C.path}</code>)` + (B ? `, ובגוף שלה יש נתונים בפורמט JSON. ` : `. `) + notes[k],
+    why: `כל מה שיקרה מכאן נקבע לפי הבקשה הזאת: השיטה והכתובת יבחרו איזו פונקציה תרוץ, והגוף יהפוך לנתונים שהפונקציה תקבל.`,
+    flow: `הבקשה יוצאת מ-<code>curl</code> ומגיעה ל-uvicorn בפורט 8000. הקוד שלנו עוד לא יודע עליה.`,
+    tech: [B ? `הבקשה היא טקסט שעובר בחיבור TCP: שורת בקשה, headers, שורה ריקה, ואז הגוף.` : `הבקשה היא טקסט שעובר בחיבור TCP: שורת בקשה ו-headers. לבקשת <code>GET</code> אין גוף.`, `הלשונית <code>request.http</code> מציגה את הטקסט המדויק שנשלח.`],
+    io: [null, C.method + " " + C.path + (B ? "  + " + JSON.stringify(B).length + " bytes JSON" : "")],
+    vars: reqVars, stack: ["curl   (client process)"] });
+
+  /* 2. uvicorn turns bytes into an ASGI call */
+  P({ at: "uvicorn", file: M, line: L.m_app, act: "Receive",
+    fw: "uvicorn/protocols/http/h11_impl.py · RequestResponseCycle.run_asgi()",
+    arrows: [["uvicorn", "fastapi", "call", "app(scope, receive, send)"]],
+    title: "uvicorn מקבל את הבקשה ומעביר אותה ל-app",
+    text: `uvicorn קורא את הבקשה מהרשת ומתרגם אותה למבנה נתונים של פייתון. אחר כך הוא מפעיל את <code>app</code> ומעביר לה את הבקשה.`,
+    why: `כך כל צד עושה את מה שהוא טוב בו: uvicorn מטפל ברשת, ו-FastAPI מטפל בכתובות ובקוד שלנו.`,
+    flow: `uvicorn קורא ל-<code>app(scope, receive, send)</code>, ה-<code>app</code> שבשורה המסומנת ב-<code>main.py</code>. מכאן FastAPI פעיל.` + (B ? ` את הגוף הוא עוד לא קרא.` : ``),
+    tech: [`ASGI הוא סטנדרט שמגדיר איך שרת כמו uvicorn מדבר עם אפליקציה כמו FastAPI.`, `<code>scope</code> הוא מילון עם פרטי הבקשה: שיטה, כתובת ו-headers.`, `<code>receive</code> היא פונקציה שדרכה האפליקציה מבקשת את הגוף. <code>send</code> היא פונקציה שדרכה היא תשלח את התשובה.`, `את הפירוק של הטקסט מהרשת עושה הספרייה <code>h11</code>.`],
+    io: ["bytes from the socket", "scope + receive() + send()"],
+    vars: [["scope['type']", "'http'"], ["scope['method']", q(C.method)], ["scope['path']", q(C.path)], ["scope['headers']", "[(b'host', b'127.0.0.1:8000'), …]"]],
+    stack: [F_UV] });
+
+  /* 3. routing */
+  var routeText = {
+    emitters: `נמצאה התאמה: <code>GET /v1/emitters</code> שייכת לפונקציה <code>list_emitters</code>.`,
+    farm: `נמצאה התאמה: <code>POST /v1/farms</code> שייכת לפונקציה <code>create_farm</code>.`,
+    plot: `נמצאה התאמה: <code>POST /v1/plots</code> שייכת לפונקציה <code>create_plot</code>.`,
+    missing: `נמצאה התאמה: <code>GET /v1/crops/{crop_id}</code>, של הפונקציה <code>get_crop</code>. החלק <code>{crop_id}</code> הוא מקום פתוח שמתאים לכל מילה, ולכן הוא תופס את <code>unknown</code>.`
+  };
+  routeText.invalid = routeText.plot; routeText.duplicate = routeText.plot;
+  P({ at: "fastapi", file: C.rfile, line: C.dec, extra: [C.prefix], act: "Route",
+    fw: "starlette/routing.py · Router.app() → Route.matches()",
+    arrows: [["fastapi", "fastapi", "call", "match route → " + C.fn]],
+    title: "FastAPI מוצא איזו פונקציה תטפל בבקשה",
+    text: `FastAPI עובר על רשימת הכתובות שנרשמה בעלייה, ומחפש כתובת ושיטה שמתאימות לבקשה. ` + routeText[k],
+    why: `אם אין כתובת מתאימה, הלקוח מקבל 404 והקוד שלנו לא רץ. אם הכתובת קיימת אבל השיטה לא, הוא מקבל 405.`,
+    flow: `FastAPI עוד לא קורא לפונקציה שנמצאה. קודם הוא צריך להכין את כל הערכים שהיא מבקשת.`,
+    tech: [`כתובת מלאה היא ה-prefix של ה-router ועוד הנתיב שבדקורטור. למשל <code>prefix="/v1"</code> ועוד <code>"/emitters"</code> נותנים <code>/v1/emitters</code>.`, `לפני החיפוש, הבקשה עוברת דרך שכבות של Starlette שתופסות שגיאות (<code>ServerErrorMiddleware</code>, <code>ExceptionMiddleware</code>).`, `FastAPI בנוי על Starlette. ההשוואה עצמה נעשית ב-<code>Route.matches()</code> של Starlette.`],
+    io: [C.method + " " + C.path, C.fn + "()"],
+    vars: [["route", q(C.method + " " + routeShown)], ["endpoint", C.fn], ["status_code", String(C.status) + (C.status === 200 ? " (default)" : "")], ["response_model", C.model]].concat(C.routePath ? [["path_params", "{'crop_id': 'unknown'}"]] : []),
+    stack: [F_MW, F_UV] });
+
+  /* 4. read the body (POST only) */
+  if (B) {
+    var compact = JSON.stringify(B);
+    P({ at: "fastapi", file: C.rfile, line: C.def, act: "Read body",
+      fw: "fastapi/routing.py · get_request_handler.app() → await request.json()",
+      arrows: [["fastapi", "uvicorn", "call", "receive()"], ["uvicorn", "fastapi", "ret", "body: " + compact.length + " bytes"]],
+      title: "FastAPI קורא את גוף הבקשה",
+      text: `FastAPI מושך מ-uvicorn את גוף הבקשה, והופך את ה-JSON למילון של פייתון. בשלב הזה עוד לא נבדק אף שדה.`,
+      why: `כדי לבדוק את הנתונים, צריך קודם להפוך את הטקסט למבנה שאפשר לעבוד איתו.`,
+      flow: `FastAPI קורא ל-<code>receive()</code> של uvicorn ומקבל את הגוף. המילון יחכה עד שלב הבדיקה.`,
+      tech: [`הפענוח נעשה עם <code>json.loads</code>, כי ה-<code>Content-Type</code> הוא <code>application/json</code>.`, `אם ה-JSON שבור, למשל חסר סוגר, FastAPI מחזיר כבר כאן 422 עם <code>json_invalid</code>, לפני <code>get_db</code> ולפני Pydantic.`],
+      io: ["b'" + (compact.length > 60 ? compact.slice(0, 57) + "…" : compact) + "'", "dict (" + Object.keys(B).length + " keys)"],
+      vars: [["body_bytes", "b'…' (" + compact.length + " bytes)"], ["json_body", k === "farm" ? "{'name': 'Presentation Demo Farm'}" : "{'farm_id': 'b7e2c0a0-…', 'name': " + q(B.name) + ", 'area_m2': " + B.area_m2 + ", …}"]],
+      stack: BASE });
+  }
+
+  /* 5. dependencies: get_db */
+  function depsFull(note) {
+    P({ at: "deps", file: D, line: L.d_dep, act: "Depends",
+      fw: "fastapi/dependencies/utils.py · solve_dependencies() → _solve_generator()",
+      arrows: [["fastapi", "deps", "call", "get_db()   [worker thread]"]],
+      title: "FastAPI מכין חיבור למסד",
+      text: `הפונקציה שעומדת לרוץ מבקשת חיבור למסד (<code>conn: DbConnection</code>). FastAPI זוכר מהעלייה שאת החיבור מקבלים מ-<code>get_db</code>, ולכן הוא מפעיל אותה עכשיו.`,
+      why: `כך ה-endpoint מקבל חיבור מוכן, ולא צריך לדעת איך פותחים חיבור או סוגרים אותו.`,
+      flow: `FastAPI קורא ל-<code>get_db()</code>. זו הפעם הראשונה שהקוד שבתוך <code>get_db</code> רץ. FastAPI מכין את התלויות <b>לפני</b> שהוא בודק את הפרמטרים ואת הגוף.`,
+      tech: [`תלות (dependency) היא ערך שפונקציה מבקשת, ו-FastAPI מביא לה אותו מפונקציה אחרת. כאן: <code>Depends(get_db)</code>.`, `<code>get_db</code> היא generator, כלומר פונקציה עם <code>yield</code>. היא יכולה לתת ערך, לעצור באמצע, ולהמשיך מאותה נקודה מאוחר יותר.`, `<code>get_db</code> מוגדרת עם <code>def</code> רגיל, לא <code>async def</code>. לכן FastAPI מריץ אותה ב-thread נפרד, מתוך threadpool: קבוצה של threads שמחכים לעבודה. כך פעולה איטית לא עוצרת בקשות אחרות.`],
+      io: ["conn: DbConnection", "get_db() → generator"],
+      vars: [["dependency", "get_db"], ["kind", "generator (yield)"], ["runs in", "threadpool worker"]],
+      stack: [F_SD].concat(BASE) });
+    P({ at: "deps", file: D, line: L.d_uri, extra: [L.d_gpath], act: "Step Into",
+      title: "בוחרים איזה קובץ מסד לפתוח",
+      text: `<code>get_db</code> מתחילה בבדיקה איזה קובץ מסד לפתוח. אם הוגדר משתנה הסביבה <code>REGISTRY_DB_PATH</code>, משתמשים בו. אחרת, ב-<code>registry.db</code> שליד הקוד.`,
+      why: `הבדיקות האוטומטיות מגדירות את המשתנה ועובדות על מסד זמני. כך הן לא נוגעות ב-<code>registry.db</code> האמיתי.`,
+      flow: `<code>get_db</code> קוראת ל-<code>get_db_path()</code> ומקבלת נתיב. כאן המשתנה לא מוגדר, ולכן הנתיב הוא <code>DEFAULT_DB_PATH</code>.`,
+      tech: [`<code>os.environ.get("REGISTRY_DB_PATH", DEFAULT_DB_PATH)</code>: קורא משתנה סביבה, ואם הוא חסר, מחזיר ערך ברירת מחדל.`, `<code>.as_uri()</code> הופך את הנתיב לכתובת מהצורה <code>file:///…</code>, ובסוף מוסיפים <code>?mode=rw</code>.`],
+      io: ["REGISTRY_DB_PATH = None", "uri"],
+      vars: [["REGISTRY_DB_PATH", "None"], ["uri", "'file:///…/registry-service/registry.db?mode=rw'"]],
+      stack: gd(L.d_uri) });
+    P({ at: "deps", file: D, line: L.d_conn, act: "Step Over", op: { k: "SQLite", t: "open file:///…/registry.db?mode=rw\n(mode=rw: open an existing file only, never create one)" },
+      arrows: [["deps", "sqlite", "call", "connect(?mode=rw)"], ["sqlite", "deps", "ret", "Connection"]],
+      title: "נפתח חיבור ל-SQLite",
+      text: `כאן נפתח החיבור בפועל לקובץ <code>registry.db</code>. ההגדרה <code>mode=rw</code> אומרת: פתח קובץ קיים לקריאה ולכתיבה, ואל תיצור קובץ חדש.`,
+      why: `בלי <code>mode=rw</code>, קובץ חסר היה הופך בשקט למסד ריק, והשירות היה מחזיר תוצאות ריקות. כך מקבלים שגיאה, ו-<code>main.py</code> הופך אותה ל-503.`,
+      flow: `<code>get_db</code> קוראת ל-<code>sqlite3.connect</code> ומקבלת אובייקט חיבור, <code>conn</code>.`,
+      tech: [`<code>uri=True</code>: מתייחסים למחרוזת ככתובת, כדי ש-<code>?mode=rw</code> ייקרא כהגדרה.`, `<code>check_same_thread=False</code>: בברירת מחדל <code>sqlite3</code> מרשה להשתמש בחיבור רק ב-thread שפתח אותו. החיבור נפתח ב-thread אחד מה-threadpool, וה-endpoint עלול לרוץ ב-thread אחר, ולכן מבטלים את הבדיקה הזאת.`],
+      io: ["uri", "conn"],
+      vars: [["conn", "<sqlite3.Connection>"], ["check_same_thread", "False"]],
+      stack: gd(L.d_conn) });
+    P({ at: "deps", file: D, line: L.d_pragma, extra: [L.d_try, L.d_row], act: "Step Over", op: { k: "SQL", t: "PRAGMA foreign_keys = ON" },
+      arrows: [["deps", "sqlite", "call", "PRAGMA foreign_keys = ON"]],
+      title: "מגדירים את החיבור",
+      text: `שתי הגדרות על החיבור. הראשונה מאפשרת לקרוא עמודות לפי השם שלהן. השנייה מפעילה ב-SQLite את הבדיקה של מפתחות זרים, כלומר של הפניות בין טבלאות.`,
+      why: `בלי הבדיקה, SQLite היה מסכים לשמור חלקה עם <code>farm_id</code> של חווה שלא קיימת. ב-SQLite היא כבויה כברירת מחדל, וצריך להפעיל אותה בכל חיבור מחדש.`,
+      flow: `<code>get_db</code> שולחת ל-SQLite את הפקודה <code>PRAGMA foreign_keys = ON</code>. זו הפקודה הראשונה שרצה במסד בבקשה הזאת.`,
+      tech: [`<code>row_factory = sqlite3.Row</code>: כל שורה שתחזור תתנהג כמו מילון, ולכן ה-repositories יכולים לכתוב <code>dict(row)</code>.`, `ה-<code>try:</code> שמתחיל כאן מבטיח שה-<code>finally</code> בסוף הפונקציה ירוץ ויסגור את החיבור, גם אם תהיה שגיאה.`],
+      vars: [["conn.row_factory", "sqlite3.Row"], ["foreign_keys", "ON"]],
+      stack: gd(L.d_pragma) });
+    P({ at: "deps", file: D, line: L.d_yield, act: "Yield", inline: "⏸ paused here",
+      arrows: [["deps", "fastapi", "ret", "yield conn"]],
+      title: "החיבור מוכן ועובר ל-FastAPI",
+      text: `<code>get_db</code> מוסרת את החיבור הפתוח ל-FastAPI ונעצרת באמצע. היא תמשיך מהנקודה הזאת רק בסוף הבקשה, ואז תסגור את החיבור.` + (note || ""),
+      why: `כך הפתיחה והסגירה של החיבור כתובות באותה פונקציה, אחת ליד השנייה, ואי אפשר לשכוח לסגור.`,
+      flow: `<code>get_db</code> מושהית. FastAPI שומר את <code>conn</code> כדי לתת אותו לפונקציה של הכתובת.`,
+      tech: [`<code>yield conn</code>: נותן את <code>conn</code> החוצה ומשהה את הפונקציה. בניגוד ל-<code>return</code>, הפונקציה לא נגמרת.`, `בסוף הבקשה FastAPI ממשיך את <code>get_db</code>. הקוד שאחרי ה-<code>yield</code>, כאן ה-<code>finally</code>, ירוץ ויסגור את החיבור.`, `זה הדפוס של תלות עם <code>yield</code>: הקוד לפני ה-<code>yield</code> מכין, והקוד אחריו מנקה.`],
+      io: [null, "conn (open)"],
+      vars: [["conn", "<sqlite3.Connection> (open)"], ["get_db", "suspended at line " + L.d_yield]],
+      stack: [F_SD].concat(BASE) });
+  }
+  function depsShort() {
+    P({ at: "deps", file: D, line: L.d_yield, range: [L.d_def, L.d_yield], act: "Depends", inline: "⏸ paused here",
+      fw: "fastapi/dependencies/utils.py · solve_dependencies() → _solve_generator()",
+      op: { k: "SQL", t: "PRAGMA foreign_keys = ON" },
+      arrows: [["fastapi", "deps", "call", "get_db()"], ["deps", "sqlite", "call", "connect + PRAGMA"], ["deps", "fastapi", "ret", "yield conn"]],
+      title: "get_db פותחת חיבור למסד",
+      text: `הפונקציה שעומדת לרוץ צריכה חיבור למסד, ולכן FastAPI מפעיל את <code>get_db</code>. היא פותחת חיבור, מפעילה את בדיקת המפתחות הזרים, ומוסרת את החיבור ל-FastAPI.`,
+      why: `כל בקשה מקבלת חיבור משלה, והוא נסגר בסוף הבקשה. ההחלטה מתועדת ב-JL-002 ביומן ההחלטות.`,
+      flow: `FastAPI קורא ל-<code>get_db()</code>, והיא נעצרת ב-<code>yield</code> עם החיבור. את המסלול צעד אחרי צעד אפשר לראות בתרחיש <code>GET /v1/emitters</code>.`,
+      tech: [`<code>mode=rw</code>: פותחים רק קובץ קיים.`, `<code>PRAGMA foreign_keys = ON</code>: SQLite יבדוק הפניות בין טבלאות.`, `<code>yield conn</code>: <code>get_db</code> מושהית עד סוף הבקשה.`],
+      vars: [["conn", "<sqlite3.Connection> (open)"], ["foreign_keys", "ON"]],
+      stack: [F_SD].concat(BASE) });
+  }
+  if (k === "missing" || k === "duplicate") depsShort();
+  else depsFull(k === "invalid" ? ` שימו לב: החיבור נפתח למרות שבגוף יש שדה שגוי, כי FastAPI עוד לא בדק את הגוף. זה נמדד בהרצה אמיתית.` : "");
+
+  /* ---------- per-scenario middle ---------- */
+  if (k === "emitters") {
+    phase = "work";
+    P({ at: "router", file: RC, line: C.def, range: [C.dec, C.def], act: "Call",
+      fw: "fastapi/routing.py · run_endpoint_function() → run_in_threadpool()",
+      arrows: [["fastapi", "router", "call", "list_emitters(conn=conn)"]],
+      title: "FastAPI מפעיל את list_emitters",
+      text: `כל מה שהפונקציה צריכה מוכן. אין לה פרמטרים מהכתובת ואין גוף לבדוק, ולכן FastAPI מפעיל את <code>list_emitters</code> מיד, עם החיבור.`,
+      why: `מכאן מתחיל הקוד שלנו. התפקיד של ה-router: לקבל את הקלט, להחליט על קודי סטטוס, ולקרוא ל-repository.`,
+      flow: `FastAPI קורא ל-<code>list_emitters(conn=conn)</code>, ב-<code>routers/catalogues.py</code>.`,
+      tech: [`<code>list_emitters</code> מוגדרת עם <code>def</code> רגיל, ולכן גם היא רצה ב-threadpool.`, `זה חשוב כי <code>sqlite3</code> חוסם: הוא מחכה עד שהשאילתה מסתיימת. ב-thread נפרד, ההמתנה לא עוצרת בקשות אחרות.`],
+      io: ["conn", null],
+      vars: [["conn", "<sqlite3.Connection>"]],
+      stack: ep("list_emitters", RC, C.def) });
+    P({ at: "repo", file: PC, line: L.pc_list_em, act: "Step Into",
+      arrows: [["router", "repo", "call", "catalogue_repository.list_emitters(conn)"]],
+      title: "ה-router מבקש את הנתונים מה-repository",
+      text: `ה-router לא ניגש למסד בעצמו. הוא מבקש מה-repository של הקטלוגים את רשימת הטפטפות, ומחזיר את מה שקיבל.`,
+      why: `כל ה-SQL נמצא ב-<code>repositories/</code>. כך ה-router עוסק רק ב-HTTP, וה-repository עוסק רק במסד.`,
+      flow: `המעבר הוא מ-<code>routers/catalogues.py</code> (שורה ${L.rc_em_ret}) אל <code>repositories/catalogues.py</code>. ה-router קורא ל-<code>catalogue_repository.list_emitters(conn)</code> ומעביר לה את החיבור.`,
+      tech: [`<code>catalogue_repository</code> הוא שם אחר למודול <code>repositories/catalogues.py</code>, מהשורה <code>from repositories import catalogues as catalogue_repository</code>.`],
+      io: ["conn", null],
+      vars: [["conn", "<sqlite3.Connection>"]],
+      stack: [fr("list_emitters", PC, L.pc_list_em), fr("list_emitters", RC, L.rc_em_ret)].concat(EP) });
+    P({ at: "sqlite", file: PC, line: L.pc_list_em, act: "Query", op: { k: "SQL", t: "SELECT id, name, flow_lph FROM emitters" },
+      arrows: [["repo", "sqlite", "call", "SELECT id, name, flow_lph FROM emitters"], ["sqlite", "repo", "ret", "4 rows"]],
+      title: "SQLite מחזיר את הטפטפות",
+      text: `ה-repository שולח ל-SQLite שאילתה שמבקשת את כל הטפטפות. SQLite מחזיר ארבע שורות, אלה שנוצרו ב-<code>seed_registry.sh</code>.`,
+      why: `זו קריאה בלבד, ולכן אין צורך בטרנזקציה ואין צורך לשמור שינויים (COMMIT).`,
+      flow: `ה-repository קורא ל-<code>conn.execute(...)</code> עם ה-SQL, ומקבל בחזרה את השורות.`,
+      tech: [`<code>conn.execute</code> מחזיר cursor: אובייקט שאפשר לעבור עליו שורה אחרי שורה.`, `בשאילתה אין ערכים שהגיעו מהלקוח, ולכן אין בה <code>?</code>.`],
+      io: ["SQL", "4 × sqlite3.Row"],
+      vars: [["rows", "4 × sqlite3.Row"]],
+      stack: [fr("list_emitters", PC, L.pc_list_em), fr("list_emitters", RC, L.rc_em_ret)].concat(EP) });
+    P({ at: "repo", file: PC, line: L.pc_list_em, act: "Return", inline: "→ [{'id': 'dripnet-pc-0.6', …}, …]",
+      arrows: [["repo", "router", "ret", "list[dict] × 4"]],
+      title: "השורות הופכות למילונים",
+      text: `כל שורה מהמסד הופכת למילון רגיל של פייתון, וה-repository מחזיר רשימה של ארבעה מילונים.`,
+      why: `ה-repository מחזיר נתונים בלבד. הוא לא יודע כלום על HTTP, על קודי סטטוס או על JSON.`,
+      flow: `הרשימה חוזרת מ-<code>repositories/catalogues.py</code> אל ה-router.`,
+      tech: [`<code>[dict(row) for row in ...]</code> היא list comprehension: לולאה קצרה שבונה רשימה. היא עוברת על כל השורות, ו-<code>dict(row)</code> הופך כל <code>sqlite3.Row</code> למילון.`],
+      io: ["4 × Row", "list[dict]"],
+      vars: [["return[0]", "{'id': 'dripnet-pc-0.6', 'name': 'DripNet PC', 'flow_lph': 0.6}"], ["len(return)", "4"]],
+      stack: [fr("list_emitters", PC, L.pc_list_em), fr("list_emitters", RC, L.rc_em_ret)].concat(EP) });
+    P({ at: "router", file: RC, line: L.rc_em_ret, act: "Return", inline: "→ list[dict]",
+      arrows: [["router", "fastapi", "ret", "list[dict] × 4"]],
+      title: "ה-router מחזיר את הרשימה ל-FastAPI",
+      text: `<code>list_emitters</code> מחזירה ל-FastAPI את הרשימה כמו שהיא. היא לא בונה תשובת HTTP.`,
+      why: `את הסטטוס, ה-headers וה-JSON בונה FastAPI. כך ה-router נשאר קצר ופשוט.`,
+      flow: `הקוד שלנו סיים. הרשימה חוזרת ל-FastAPI, שיבדוק אותה ויהפוך אותה לתשובה.`,
+      io: [null, "list[dict]"],
+      vars: [["return", "[{…}, {…}, {…}, {…}]"]],
+      stack: ep("list_emitters", RC, L.rc_em_ret) });
+    outOk(SC, L.s_emitter, L.s_emitter_end, `FastAPI בודק כל טפטפת ברשימה מול המודל <code>Emitter</code>: יש <code>id</code> ו-<code>name</code> מסוג טקסט, ו-<code>flow_lph</code> מסוג מספר עשרוני. כל ארבע הטפטפות עוברות.`);
+    finalStep(`הבקשה עברה את כל הדרך: מהלקוח, דרך uvicorn ו-FastAPI, אל <code>get_db</code>, ה-router, ה-repository ו-SQLite, וחזרה. נפתח חיבור אחד, רצה שאילתה אחת (חוץ מה-PRAGMA), והחיבור נסגר אחרי שהתשובה כבר נשלחה.`,
+      [["SQL", "PRAGMA + 1 × SELECT"], ["transactions", "0"]]);
+    return S;
+  }
+
+  if (k === "farm") {
+    validateFarm();
+    phase = "work";
+    P({ at: "router", file: RF, line: L.rf_def, range: [L.rf_dec, L.rf_def], act: "Call",
+      fw: "fastapi/routing.py · run_endpoint_function() → run_in_threadpool()",
+      arrows: [["fastapi", "router", "call", "create_farm(body, conn)"]],
+      title: "FastAPI מפעיל את create_farm",
+      text: `כל הערכים מוכנים, ו-FastAPI מפעיל את הפונקציה שלנו. היא מקבלת גוף שכבר נבדק, וחיבור פתוח למסד.`,
+      why: `מכאן מתחיל הקוד שלנו, והוא יכול לסמוך על הקלט.`,
+      flow: `FastAPI קורא ל-<code>create_farm(body, conn)</code> ב-<code>routers/farms.py</code>.`,
+      tech: [`<code>create_farm</code> מוגדרת עם <code>def</code> רגיל, ולכן FastAPI מריץ אותה ב-threadpool.`],
+      io: ["body=FarmCreate(name='Presentation Demo Farm'), conn", null],
+      vars: [["body", "FarmCreate(name='Presentation Demo Farm')"], ["conn", "<sqlite3.Connection>"]],
+      stack: ep("create_farm", RF, L.rf_def) });
+    P({ at: "router", file: RF, line: L.rf_ret, act: "Step Over",
+      title: "ה-router מעביר ל-repository רק את השם",
+      text: `ה-router שולח ל-repository את החיבור ואת השם בלבד, ולא את כל האובייקט של Pydantic.`,
+      why: `ה-repository לא תלוי ב-<code>schemas.py</code>. הוא מקבל ערכים פשוטים ומחזיר מילון, ולכן קל לבדוק אותו לבד.`,
+      flow: `ה-router קורא ל-<code>farm_repository.create_farm(conn, body.name)</code>. בצעד הבא נכנסים לתוך הפונקציה הזאת.`,
+      io: ["body.name", "'Presentation Demo Farm'"],
+      vars: [["body.name", "'Presentation Demo Farm'"]],
+      stack: ep("create_farm", RF, L.rf_ret) });
+    var fS = function (l) { return [fr("create_farm", PF, l), fr("create_farm", RF, L.rf_ret)].concat(EP); };
+    P({ at: "repo", file: PF, line: L.pf_cr_dict, act: "Step Into", inline: "→ id = 'f1a6b883-…'",
+      arrows: [["router", "repo", "call", "create_farm(conn, 'Presentation Demo Farm')"]],
+      title: "ה-repository יוצר מזהה לחווה",
+      text: `ה-repository יוצר לחווה מזהה ייחודי חדש, ובונה מילון עם המזהה והשם. זה גם המילון שיחזור בסוף.`,
+      why: `השרת יוצר את המזהה, לא הלקוח. כך אין שני מזהים זהים, ואין צורך לסמוך על הלקוח.`,
+      flow: `המעבר הוא מ-<code>routers/farms.py</code> אל <code>repositories/farms.py</code>, לפונקציה <code>create_farm</code>.`,
+      tech: [`<code>uuid4()</code> מייצר מזהה אקראי (UUID). <code>str(...)</code> הופך אותו לטקסט, כי העמודה <code>id</code> ב-SQLite היא <code>TEXT</code>.`],
+      io: ["name='Presentation Demo Farm'", "farm = {'id': …, 'name': …}"],
+      vars: [["farm['id']", "'f1a6b883-567b-4e43-95bf-d7095e1b5b42'"], ["farm['name']", "'Presentation Demo Farm'"]],
+      stack: fS(L.pf_cr_dict) });
+    P({ at: "repo", file: PF, line: L.pf_cr_with, act: "Enter",
+      title: "מתחילים טרנזקציה",
+      text: `<code>with conn:</code> פותח טרנזקציה: קבוצה של פעולות במסד שתישמר רק אם כולן מצליחות.`,
+      why: `בלי שמירה (COMMIT), השורה החדשה הייתה נעלמת כשהחיבור ייסגר.`,
+      flow: `עדיין לא נשלח שום דבר ל-SQLite. הפקודה הבאה בתוך הבלוק היא ה-INSERT.`,
+      tech: [`<code>with conn</code> על חיבור של <code>sqlite3</code> לא סוגר את החיבור. הוא רק מנהל טרנזקציה: בסוף תקין הוא שולח COMMIT, ואם יש שגיאה הוא שולח ROLLBACK.`, `את ה-<code>BEGIN</code> שולח המודול <code>sqlite3</code> בעצמו, ממש לפני ה-INSERT.`],
+      vars: [["conn.in_transaction", "False"]],
+      stack: fS(L.pf_cr_with) });
+    P({ at: "sqlite", file: PF, line: L.pf_cr_ins, act: "Execute", inline: "→ 1 row",
+      op: { k: "SQL", t: "BEGIN\nINSERT INTO farms (id, name) VALUES (:id, :name)\n  :id   = 'f1a6b883-567b-4e43-95bf-d7095e1b5b42'\n  :name = 'Presentation Demo Farm'" },
+      arrows: [["repo", "sqlite", "call", "INSERT INTO farms (id, name) …"], ["sqlite", "repo", "ret", "1 row"]],
+      title: "SQLite מוסיף את החווה",
+      text: `ה-repository שולח ל-SQLite פקודה להוסיף שורה לטבלה <code>farms</code>, עם המזהה והשם. SQLite מוסיף שורה אחת.`,
+      why: `הערכים נשלחים בנפרד מטקסט ה-SQL. כך שם עם גרש, או קלט זדוני, לא יכול לשנות את הפקודה (SQL injection).`,
+      flow: `ה-repository קורא ל-<code>conn.execute(...)</code>. השורה נוספה, אבל עוד לא נשמרה סופית.`,
+      tech: [`<code>:id</code> ו-<code>:name</code> הם פרמטרים עם שם. הערכים שלהם נלקחים מהמילון <code>farm</code>, לפי שם המפתח.`, `SQLite בודק את האילוצים <code>PRIMARY KEY</code> ו-<code>NOT NULL</code> לפני ההוספה.`],
+      io: ["farm dict", "rowcount = 1"],
+      vars: [["conn.in_transaction", "True"], ["rowcount", "1"]],
+      stack: fS(L.pf_cr_ins) });
+    P({ at: "repo", file: PF, line: L.pf_cr_with, act: "Commit", inline: "COMMIT", op: { k: "SQL", t: "COMMIT" },
+      arrows: [["repo", "sqlite", "call", "COMMIT"]],
+      title: "הטרנזקציה נשמרת (COMMIT)",
+      text: `הבלוק של <code>with conn</code> הסתיים בלי שגיאה, ולכן השינוי נשמר בקובץ.`,
+      why: `מעכשיו החווה קיימת במסד, גם אם משהו ייכשל אחר כך.`,
+      flow: `הביצוע חוזר לשורה ${L.pf_cr_with}, השורה של ה-<code>with</code>, ו-<code>sqlite3</code> שולח COMMIT. זה נמדד בהרצה אמיתית.`,
+      vars: [["conn.in_transaction", "False"], ["committed", "True"]],
+      stack: fS(L.pf_cr_with) });
+    P({ at: "repo", file: PF, line: L.pf_cr_ret, act: "Return", inline: "→ farm",
+      arrows: [["repo", "router", "ret", "farm dict"]],
+      title: "ה-repository מחזיר את החווה",
+      text: `ה-repository מחזיר את המילון שבנה בזיכרון. הוא לא קורא את החווה שוב מהמסד.`,
+      why: `אין צורך בשאילתה נוספת: כל הנתונים כבר ידועים.`,
+      flow: `המילון חוזר מ-<code>repositories/farms.py</code> אל ה-router ב-<code>routers/farms.py</code>.`,
+      io: [null, "{'id': 'f1a6b883-…', 'name': 'Presentation Demo Farm'}"],
+      vars: [["return", "{'id': 'f1a6b883-567b-4e43-95bf-d7095e1b5b42', 'name': 'Presentation Demo Farm'}"]],
+      stack: fS(L.pf_cr_ret) });
+    P({ at: "router", file: RF, line: L.rf_ret, act: "Return", inline: "→ dict",
+      arrows: [["router", "fastapi", "ret", "{'id': …, 'name': …}"]],
+      title: "ה-router מחזיר את החווה ל-FastAPI",
+      text: `ה-router מחזיר את המילון ל-FastAPI כמו שהוא. הוא לא קובע את הסטטוס ולא בונה JSON.`,
+      why: `את הסטטוס 201 FastAPI לוקח מהדקורטור. כל שכבה עושה דבר אחד, ולכן קל לבדוק כל אחת בנפרד.`,
+      flow: `הקוד שלנו סיים. FastAPI יבדוק את המילון ויהפוך אותו לתשובה.`,
+      vars: [["return", "{'id': 'f1a6b883-…', 'name': 'Presentation Demo Farm'}"]],
+      stack: ep("create_farm", RF, L.rf_ret) });
+    outOk(SC, L.s_farm, L.s_farm_end, `FastAPI בודק את החווה מול המודל <code>Farm</code>. ה-<code>id</code> הגיע מה-repository כטקסט, ו-Pydantic מוודא שהוא UUID תקין. ב-JSON הוא יוצא שוב כטקסט.`);
+    finalStep(`החווה נשמרה ב-<code>registry.db</code>, עם מזהה שהשרת יצר. בדרך: הגוף נבדק מול <code>FarmCreate</code>, ה-repository הוסיף שורה ושמר אותה, והתשובה נבדקה מול <code>Farm</code> ויצאה עם 201. המזהה יהיה שונה בכל הרצה.`,
+      [["SQL", "PRAGMA + INSERT + COMMIT"], ["transactions", "1 (committed)"]]);
+    return S;
+  }
+
+  if (k === "plot") {
+    validatePlotDetailed();
+    phase = "work";
+    callCreatePlot();
+    P({ at: "router", file: RP, line: L.rp_dump, act: "Step Over",
+      title: "הנתונים הופכים למילון פשוט",
+      text: `ה-router הופך את האובייקט של Pydantic למילון רגיל, שאפשר לשלוח למסד.`,
+      why: `ה-repositories עובדים רק עם ערכים פשוטים: טקסט ומספרים.`,
+      flow: `המילון <code>fields</code> מוכן. השורה הבאה מעבירה אותו ל-<code>check_references</code>.`,
+      tech: [`<code>body.model_dump(mode="json")</code> הופך מודל למילון.`, `<code>mode="json"</code> חשוב כאן: הוא מחזיר את <code>farm_id</code> מאובייקט <code>UUID</code> לטקסט, הסוג ש-SQLite יודע לשמור.`],
+      io: ["PlotCreate(farm_id=UUID('b7e2…'), …)", "fields = {'farm_id': 'b7e2…', … 11 keys}"],
+      vars: [["fields['farm_id']", q(FARM_ID) + "  (str)"], ["fields['name']", "'South block'"], ["fields['area_m2']", "1000.0"], ["fields['planting_date']", "'2026-03-01'"], ["len(fields)", "11"]],
+      stack: ep("create_plot", RP, L.rp_dump) });
+    checkRefsDetailed();
+    insertPlot(false);
+    outOk(SC, L.s_plot, L.s_plot_end, `FastAPI בודק את החלקה מול המודל <code>Plot</code>: 12 שדות, כולל ה-<code>id</code> החדש. כולם תקינים. <code>area_m2</code> יוצא כ-<code>1000.0</code>, כי הוא מוגדר כמספר עשרוני (<code>float</code>).`);
+    finalStep(`החלקה נשמרה. הקלט נבדק בשלוש שכבות: Pydantic בדק את הצורה והטווחים, <code>check_references</code> בדק בארבע שאילתות שההפניות קיימות, ו-SQLite בדק שוב את החוקים של הטבלה, כרשת ביטחון. כל הבקשה השתמשה בחיבור אחד.`,
+      [["SQL", "PRAGMA + 4 × SELECT + INSERT + COMMIT"], ["transactions", "1 (committed)"]]);
+    return S;
+  }
+
+  if (k === "invalid") {
+    P({ at: "schemas", file: SC, line: L.s_pc_cfg, range: [L.s_pc, L.s_pc_lon], act: "Validate",
+      fw: "fastapi/dependencies/utils.py · request_body_to_args()",
+      arrows: [["fastapi", "schemas", "call", "validate body → PlotCreate"]],
+      title: "Pydantic בודק את גוף הבקשה",
+      text: `רק אחרי שהחיבור מוכן, FastAPI מעביר את הגוף לבודק של <code>PlotCreate</code>. הבודק עובר על כל 11 השדות, ואוסף את כל השגיאות שהוא מוצא.`,
+      why: `הבודק לא עוצר בשגיאה הראשונה. כך הלקוח מקבל בתשובה אחת את כל מה שצריך לתקן.`,
+      flow: `FastAPI מפעיל את הבודק שנבנה מ-<code>PlotCreate</code> בזמן העלייה.`,
+      vars: [["model", "PlotCreate"], ["input['area_m2']", "-5"]],
+      stack: [F_PYD("PlotCreate"), F_SD].concat(BASE) });
+    P({ at: "schemas", file: SC, line: L.s_pc_area, extra: [L.s_pos], mode: "raise", act: "Fail", inline: "✗ -5 is not > 0",
+      title: "area_m2 נכשל: שטח שלילי",
+      text: `הכלל של <code>area_m2</code> הוא מספר גדול מ-0. הערך <code>-5</code> נכשל, והבודק רושם שגיאה.`,
+      why: `שטח שלילי הוא ערך חסר משמעות. עדיף לעצור אותו בכניסה מאשר לגלות אותו במסד.`,
+      flow: `הבודק לא נעצר. הוא רושם את השגיאה וממשיך לשדה הבא.`,
+      tech: [`<code>PositiveNumber</code> מוגדר עם <code>Field(gt=0)</code>.`, `השגיאה נרשמת עם <code>type = 'greater_than'</code> ו-<code>loc = ('body', 'area_m2')</code>, כלומר: בגוף, בשדה <code>area_m2</code>.`],
+      io: ["-5", "error: greater_than"],
+      vars: [["errors[0].type", "'greater_than'"], ["errors[0].loc", "('body', 'area_m2')"], ["errors[0].msg", "'Input should be greater than 0'"], ["errors[0].input", "-5"], ["errors[0].ctx", "{'gt': 0.0}"]],
+      stack: [F_PYD("PlotCreate"), F_SD].concat(BASE) });
+    P({ at: "schemas", file: SC, line: L.s_future_cmp, range: [L.s_future, L.s_future_ret], extra: [L.s_pc_date], act: "Continue",
+      arrows: [["schemas", "schemas", "call", "not_in_future('2026-03-01')"]],
+      title: "הבדיקה ממשיכה לשאר השדות",
+      text: `גם אחרי השגיאה, הבודק ממשיך. <code>planting_date</code> תקין, ולכן גם הפונקציה שלנו <code>not_in_future</code> רצה.`,
+      why: `אילו היו עוד שדות שגויים, כולם היו מופיעים בתשובה.`,
+      flow: `Pydantic קורא ל-<code>not_in_future</code> ב-<code>schemas.py</code>. זה נמדד בהרצה אמיתית: הפונקציה נקראה, למרות ש-<code>area_m2</code> כבר נכשל.`,
+      vars: [["value", "'2026-03-01'"], ["date.today()", q(todayIso())], ["errors", "1 so far"]],
+      stack: [fr("not_in_future", SC, L.s_future_cmp), F_PYD("PlotCreate"), F_SD].concat(BASE) });
+    P({ at: "fastapi", file: SC, line: L.s_pc, range: [L.s_pc, L.s_pc_lon], mode: "raise", act: "Errors",
+      arrows: [["schemas", "fastapi", "err", "1 validation error"]],
+      title: "התוצאה: רשימה עם שגיאה אחת",
+      text: `הבודק לא מחזיר אובייקט <code>PlotCreate</code>. במקומו FastAPI מקבל רשימה עם שגיאה אחת.`,
+      why: `<code>create_plot</code> מבקשת <code>body: PlotCreate</code>, ואין ל-FastAPI ערך תקין לתת לה.`,
+      flow: `הבודק מחזיר את השגיאות ל-FastAPI. לפרמטר <code>conn</code> כבר יש ערך, אבל לפרמטר <code>body</code> אין.`,
+      io: ["dict", "errors = [greater_than]"],
+      vars: [["values['conn']", "<sqlite3.Connection> (open)"], ["values['body']", "(missing)"], ["errors", "[{'type': 'greater_than', 'loc': ('body', 'area_m2'), …}]"]],
+      stack: [F_SD].concat(BASE) });
+    P({ at: "fastapi", file: RP, line: L.rp_def, range: [L.rp_dec, L.rp_def], mode: "raise", act: "Skip", inline: "✗ never called",
+      fw: "fastapi/routing.py · get_request_handler.app() → raise RequestValidationError(errors)",
+      title: "create_plot לא רצה בכלל",
+      text: `FastAPI מפעיל את הפונקציה של הכתובת רק אם אין אף שגיאה. כאן יש שגיאה, ולכן <code>create_plot</code> לא נקראת. שום שורה ב-<code>routers/plots.py</code> וב-<code>repositories/</code> לא רצה.`,
+      why: `זו ההבטחה של FastAPI: הקוד שלנו רץ רק על קלט שעבר את הבדיקה. לכן ה-router לא צריך לבדוק בעצמו ש-<code>area_m2</code> חיובי.`,
+      flow: `במקום לקרוא ל-<code>create_plot</code>, FastAPI זורק שגיאה בשם <code>RequestValidationError</code>, עם רשימת השגיאות.`,
+      tech: [`התנאי נמצא ב-<code>get_request_handler</code> של FastAPI: אם הרשימה <code>errors</code> לא ריקה, זורקים <code>RequestValidationError(errors)</code>.`],
+      does: "skip",
+      vars: [["errors", "1 error"], ["create_plot called", "False"], ["exc", "RequestValidationError(1 error)"]],
+      stack: BASE });
+    errTail({ exc: "RequestValidationError", excRepr: "RequestValidationError([{'type': 'greater_than', …}])", from: "fastapi",
+      unwind: [], mro: "RequestValidationError → ValidationException → Exception",
+      handler: "request_validation_exception_handler",
+      handlerText: `המטפל הופך את רשימת השגיאות לתשובת 422. לכל שגיאה יש סוג (<code>greater_than</code>), מיקום (<code>body</code>, <code>area_m2</code>), הודעה, והערך שהלקוח שלח. שימו לב: הערך ששלח הלקוח (<code>input</code>) חוזר אליו בתשובה.`,
+      closeNote: `החיבור נסגר בלי שרצה עליו אף שאילתה, חוץ מה-PRAGMA. הסגירה קורית <b>לפני</b> שנבנית תשובת ה-422. זה נמדד בהרצה אמיתית.` });
+    finalStep(`<code>create_plot</code> לא רצה, ולא רצה אף שאילתה חוץ מה-PRAGMA. ובכל זאת נפתח ונסגר חיבור, כי FastAPI מכין את התלויות לפני שהוא בודק את הגוף. כדאי להשוות: גם <code>Unknown crop</code> היא שגיאת 422, אבל היא נזרקת מתוך <code>check_references</code>, אחרי שהקוד שלנו כבר רץ.`,
+      [["SQL", "PRAGMA only"], ["endpoint ran", "False"]]);
+    return S;
+  }
+
+  if (k === "missing") {
+    P({ at: "fastapi", file: RC, line: L.rc_crop_def, act: "Params",
+      fw: "fastapi/dependencies/utils.py · solve_dependencies() → request_params_to_args()",
+      arrows: [["fastapi", "fastapi", "call", "crop_id = 'unknown'"]],
+      title: "FastAPI לוקח את crop_id מהכתובת",
+      text: `החלק <code>{crop_id}</code> בכתובת הוא פרמטר. FastAPI לוקח ממנו את המילה <code>unknown</code>, ונותן אותה לפרמטר <code>crop_id</code> של הפונקציה.`,
+      why: `<code>crop_id</code> מוגדר כטקסט, ולכן כל מילה מתקבלת, גם <code>unknown</code>. לבקשה אין גוף, ולכן אין מודל לבדוק.`,
+      flow: `זה קורה אחרי ש-<code>get_db</code> כבר פתחה חיבור. אין שגיאות, ולכן FastAPI ימשיך לפונקציה.`,
+      tech: [`לשם השוואה: ב-<code>GET /v1/farms/{farm_id}</code> הפרמטר מוגדר כ-<code>UUID</code>. שם <code>unknown</code> היה נכשל כבר בשלב הזה עם 422, והקוד שלנו לא היה רץ.`],
+      io: ["path_params = {'crop_id': 'unknown'}", "crop_id = 'unknown'"],
+      vars: [["crop_id", "'unknown'"], ["errors", "[]"]],
+      stack: [F_SD].concat(BASE) });
+    phase = "work";
+    P({ at: "router", file: RC, line: L.rc_crop_def, range: [L.rc_crop_dec, L.rc_crop_def], act: "Call",
+      fw: "fastapi/routing.py · run_endpoint_function() → run_in_threadpool()",
+      arrows: [["fastapi", "router", "call", "get_crop(crop_id='unknown', conn)"]],
+      title: "FastAPI מפעיל את get_crop",
+      text: `FastAPI מפעיל את הפונקציה שלנו עם <code>crop_id='unknown'</code> ועם החיבור.`,
+      why: `מכאן מתחיל הקוד שלנו.`,
+      flow: `FastAPI קורא ל-<code>get_crop(crop_id, conn)</code> ב-<code>routers/catalogues.py</code>.`,
+      tech: [`גם <code>get_crop</code> מוגדרת עם <code>def</code> רגיל, ולכן היא רצה ב-threadpool.`],
+      io: ["crop_id='unknown', conn", null],
+      vars: [["crop_id", "'unknown'"], ["conn", "<sqlite3.Connection>"]],
+      stack: ep("get_crop", RC, L.rc_crop_def) });
+    var cS = function (l) { return [fr("get_crop", PC, l), fr("get_crop", RC, L.rc_crop_call)].concat(EP); };
+    P({ at: "sqlite", file: PC, line: L.pc_get_crop_sql, act: "Query",
+      op: { k: "SQL", t: "SELECT id, name FROM crops WHERE id = ?\n  ? = 'unknown'" },
+      arrows: [["router", "repo", "call", "get_crop(conn, 'unknown')"], ["repo", "sqlite", "call", "SELECT … FROM crops WHERE id = ?"], ["sqlite", "repo", "ret", "no row"]],
+      title: "מחפשים את הגידול במסד",
+      text: `ה-router מבקש מה-repository את הגידול <code>unknown</code>. ה-repository מריץ שאילתה, ו-SQLite לא מוצא שורה כזאת.`,
+      why: `הערך הגיע מהלקוח, ולכן הוא נשלח בנפרד מטקסט ה-SQL, דרך <code>?</code>, ולא מודבק לתוך המחרוזת.`,
+      flow: `המעבר הוא מ-<code>routers/catalogues.py</code> (שורה ${L.rc_crop_call}) אל <code>repositories/catalogues.py</code>. <code>fetchone()</code> מחזיר <code>None</code>, כי אין שורה.`,
+      tech: [`<code>?</code> הוא מקום שמור לערך. SQLite מכניס את הערך רק אחרי שהוא כבר הבין את הפקודה, ולכן אי אפשר להזריק דרכו SQL.`],
+      io: ["crop_id = 'unknown'", "row = None"],
+      vars: [["crop_id", "'unknown'"], ["row", "None"]],
+      stack: cS(L.pc_get_crop_sql) });
+    P({ at: "repo", file: PC, line: L.pc_get_crop_ret, act: "Return", inline: "→ None",
+      arrows: [["repo", "router", "ret", "None"]],
+      title: "ה-repository מחזיר None",
+      text: `אין שורה, ולכן ה-repository מחזיר <code>None</code>, כלומר "לא נמצא". הוא לא זורק שגיאה ולא יודע מה זה 404.`,
+      why: `לפי הארכיטקטורה שלנו, repository מחזיר נתונים או <code>None</code>. ההחלטה מה זה אומר ב-HTTP שייכת ל-router.`,
+      flow: `<code>None</code> חוזר מ-<code>repositories/catalogues.py</code> אל <code>get_crop</code> ב-<code>routers/catalogues.py</code>.`,
+      tech: [`<code>dict(row) if row else None</code>: אם יש שורה, מחזירים אותה כמילון. אחרת מחזירים <code>None</code>.`],
+      io: ["row = None", "None"],
+      vars: [["row", "None"], ["return", "None"]],
+      stack: cS(L.pc_get_crop_ret) });
+    P({ at: "router", file: RC, line: L.rc_crop_if, extra: [L.rc_crop_call], act: "Step Over", inline: "→ True",
+      title: "ה-router מזהה שהגידול לא קיים",
+      text: `ה-router בודק את התוצאה. היא <code>None</code>, ולכן התנאי <code>if crop is None</code> מתקיים.`,
+      why: `זו הנקודה שבה "לא נמצא במסד" הופך ל"לא נמצא" ב-HTTP.`,
+      flow: `התנאי מתקיים, ולכן השורה הבאה שתרוץ היא ה-<code>raise</code>.`,
+      vars: [["crop", "None"]],
+      stack: ep("get_crop", RC, L.rc_crop_if) });
+    P({ at: "router", file: RC, line: L.rc_crop_raise, mode: "raise", act: "Raise", inline: "✗ HTTPException(404)",
+      title: "ה-router זורק שגיאת 404",
+      text: `ה-router זורק <code>HTTPException</code> עם סטטוס 404 וההודעה <code>"Crop not found"</code>. הפונקציה נעצרת כאן ולא מחזירה ערך.`,
+      why: `404 מתאים כי הכתובת עצמה מצביעה על משהו שלא קיים. המפרט קובע: מזהה לא מוכר מחזיר 404.`,
+      flow: `השגיאה יוצאת מ-<code>get_crop</code> ועולה אל FastAPI.`,
+      vars: [["exc", "HTTPException(status_code=404, detail='Crop not found')"]],
+      stack: ep("get_crop", RC, L.rc_crop_raise) });
+    errTail({ exc: "HTTPException", excRepr: "HTTPException(404, 'Crop not found')", from: "router",
+      unwind: [fr("get_crop", RC, L.rc_crop_raise), F_TP, F_RE], mro: "fastapi.HTTPException → starlette.HTTPException → Exception",
+      handler: "http_exception_handler",
+      handlerText: `המטפל בונה תשובת 404. ההודעה <code>"Crop not found"</code> לקוחה בדיוק מהשורה ב-router שזרקה את השגיאה.` });
+    finalStep(`ה-repository רק החזיר <code>None</code>. ה-router החליט שזה 404, ו-FastAPI בנה את ה-JSON. כל שכבה עשתה את התפקיד שלה: SQL ב-repository, HTTP ב-router, ופורמט התשובה ב-FastAPI.`,
+      [["SQL", "PRAGMA + 1 × SELECT"], ["transactions", "0"]]);
+    return S;
+  }
+
+  if (k === "duplicate") {
+    P({ at: "schemas", file: SC, line: L.s_pc_cfg, range: [L.s_pc, L.s_pc_lon], act: "Validate",
+      fw: "fastapi/dependencies/utils.py · request_body_to_args()",
+      arrows: [["fastapi", "schemas", "call", "validate body → PlotCreate"], ["schemas", "fastapi", "ret", "PlotCreate ✓"]],
+      title: "Pydantic: הגוף תקין",
+      text: `כל 11 השדות עוברים את הבדיקה, בדיוק כמו בתרחיש "יצירת חלקה".`,
+      why: `Pydantic לא יכול לדעת שהשם כבר תפוס. המידע הזה נמצא רק במסד.`,
+      flow: `FastAPI מקבל אובייקט <code>PlotCreate</code> בלי שגיאות, ולכן ימשיך ל-<code>create_plot</code>.`,
+      vars: [["body.name", "'North block'"], ["body.farm_id", "UUID('b7e2c0a0-…')"], ["errors", "[]"]],
+      stack: [F_PYD("PlotCreate"), F_SD].concat(BASE) });
+    phase = "work";
+    callCreatePlot();
+    P({ at: "router", file: RP, line: L.rp_check, extra: [L.rp_dump], act: "Step Over", inline: "→ None ✓", op: { k: "SQL", n: 4, t: "SELECT id, name FROM farms WHERE id = ?      → 1 row\nSELECT id, name FROM crops WHERE id = ?      → 1 row\nSELECT … FROM soils WHERE id = ?             → 1 row\nSELECT … FROM emitters WHERE id = ?          → 1 row" },
+      arrows: [["router", "repo", "call", "get_farm / get_crop / get_soil / get_emitter"], ["repo", "sqlite", "call", "4 × SELECT … WHERE id = ?"], ["sqlite", "repo", "ret", "4 rows"], ["repo", "router", "ret", "4 × dict ✓"]],
+      title: "כל ההפניות קיימות",
+      text: `ה-router הופך את הגוף למילון, ובודק שהחווה, הגידול, הקרקע והטפטפת קיימים. כולם קיימים, ולכן אין שגיאה.`,
+      why: `<code>check_references</code> בודקת רק שההפניות קיימות. היא לא בודקת אם השם כבר תפוס.`,
+      flow: `<code>check_references</code> מריצה ארבע שאילתות דרך ה-repositories. הפירוט המלא נמצא בתרחיש "יצירת חלקה".`,
+      vars: [["fields['name']", "'North block'"], ["fields['farm_id']", q(FARM_ID)]],
+      stack: ep("create_plot", RP, L.rp_check) });
+    insertPlot(true);
+    return S;
+  }
+  return S;
+
+  /* ---------- helpers that add steps (hoisted) ---------- */
+  function validateFarm() {
+    P({ at: "schemas", file: SC, line: L.s_fc_name, range: [L.s_fc, L.s_fc_name], extra: [L.s_name], act: "Validate",
+      fw: "fastapi/dependencies/utils.py · request_body_to_args()",
+      arrows: [["fastapi", "schemas", "call", "validate body → FarmCreate"]],
+      title: "Pydantic בודק את גוף הבקשה",
+      text: `FastAPI מעביר את המילון מהגוף לבודק של <code>FarmCreate</code>. הבודק מוודא שיש שם, שהוא לא ריק, ושאין שדות מיותרים. <code>'Presentation Demo Farm'</code> עובר.`,
+      why: `הקוד שלנו ירוץ רק על נתונים תקינים. כך ה-router לא צריך לבדוק בעצמו שהשם לא ריק.`,
+      flow: `FastAPI מפעיל את הבודק שנבנה מ-<code>FarmCreate</code> בזמן העלייה. <code>schemas.py</code> לא "רץ" כאן כמו שירות: רק הבודק שלו מופעל. <code>get_db</code> כבר פתחה חיבור לפני הבדיקה.`,
+      tech: [`<code>extra="forbid"</code>: שדה שלא במודל, למשל <code>id</code>, יגרום ל-422.`, `<code>name: Name</code>: טקסט עם <code>min_length=1</code>.`],
+      io: ["{'name': 'Presentation Demo Farm'}", null],
+      vars: [["input", "{'name': 'Presentation Demo Farm'}"], ["extra", "'forbid'"], ["name.min_length", "1"]],
+      stack: [F_PYD("FarmCreate"), F_SD].concat(BASE) });
+    P({ at: "fastapi", file: SC, line: L.s_fc, range: [L.s_fc, L.s_fc_name], act: "Return",
+      arrows: [["schemas", "fastapi", "ret", "FarmCreate(name=…)"]],
+      title: "הגוף תקין: נוצר אובייקט FarmCreate",
+      text: `הבדיקה עברה. Pydantic מחזיר אובייקט <code>FarmCreate</code> עם השם, ואין שגיאות.`,
+      why: `FastAPI ממשיך לפונקציה של הכתובת רק אם אין אף שגיאה. בתרחיש "שדה לא תקין" רואים מה קורה כשיש.`,
+      flow: `עכשיו יש ל-FastAPI ערך לכל פרמטר של <code>create_farm</code>: <code>body</code> מ-Pydantic, ו-<code>conn</code> מ-<code>get_db</code>.`,
+      io: [null, "FarmCreate(name='Presentation Demo Farm')"],
+      vars: [["values['body']", "FarmCreate(name='Presentation Demo Farm')"], ["values['conn']", "<sqlite3.Connection>"], ["errors", "[]"]],
+      stack: [F_SD].concat(BASE) });
+  }
+
+  function validatePlotDetailed() {
+    var pyd = [F_PYD("PlotCreate"), F_SD].concat(BASE);
+    P({ at: "schemas", file: SC, line: L.s_pc_cfg, range: [L.s_pc, L.s_pc_lon], act: "Validate",
+      fw: "fastapi/dependencies/utils.py · request_body_to_args()",
+      arrows: [["fastapi", "schemas", "call", "validate body → PlotCreate"]],
+      title: "Pydantic בודק את גוף הבקשה",
+      text: `FastAPI מעביר את המילון מהגוף לבודק של <code>PlotCreate</code>. יש בו 11 שדות, וכולם חובה. בצעדים הבאים נעבור על הכללים, שדה אחרי שדה.`,
+      why: `הקוד שלנו ירוץ רק על נתונים תקינים. כך ה-router יכול לסמוך על הערכים.`,
+      flow: `FastAPI מפעיל את הבודק שנבנה מ-<code>PlotCreate</code> בזמן העלייה. <code>get_db</code> כבר פתחה חיבור לפני הבדיקה.`,
+      tech: [`<code>extra="forbid"</code>: שדה שלא ברשימה, למשל <code>id</code>, נחשב לשגיאה.`, `שדה חסר נכשל עם <code>missing</code>.`],
+      io: ["dict (11 keys)", null],
+      vars: [["model", "PlotCreate"], ["extra", "'forbid'"], ["required fields", "11"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_farm, act: "Field", inline: "→ UUID('b7e2c0a0-…')",
+      title: "farm_id: האם זה מזהה תקין?",
+      text: `הבודק מוודא ש-<code>farm_id</code> כתוב בצורה של UUID, והופך אותו לאובייקט UUID.`,
+      why: `כאן נבדקת רק הצורה. האם החווה באמת קיימת במסד ייבדק בהמשך, ב-router.`,
+      tech: [`טקסט שאינו UUID, למשל <code>'farm-1'</code>, היה נכשל עם <code>uuid_parsing</code>.`],
+      io: ["'b7e2c0a0-…' (str)", "UUID('b7e2c0a0-…')"],
+      vars: [["farm_id", "UUID('b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001')"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_name, extra: [L.s_name], act: "Field", inline: "✓ len 11 ≥ 1",
+      title: "name: האם יש שם?",
+      text: `הבודק מוודא שהשם הוא טקסט ושהוא לא ריק. <code>'South block'</code> עובר.`,
+      why: `לחלקה בלי שם אין דרך להבדיל אותה מחלקות אחרות בחווה.`,
+      tech: [`<code>Name</code> מוגדר כ-<code>str</code> עם <code>min_length=1</code>. מחרוזת ריקה הייתה נכשלת עם <code>string_too_short</code>.`],
+      vars: [["name", "'South block'"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_area, extra: [L.s_pos], act: "Field", inline: "→ 1000.0",
+      title: "area_m2: האם השטח חיובי?",
+      text: `הבודק מוודא שהשטח הוא מספר גדול מ-0. <code>1000</code> עובר, ונשמר כמספר עשרוני: <code>1000.0</code>.`,
+      why: `שטח אפס או שלילי לא הגיוני. עדיף לעצור אותו בכניסה מאשר לגלות אותו במסד.`,
+      tech: [`<code>gt=0</code>: גדול מ-0.`, `<code>strict=True</code>: הטקסט <code>"1000"</code> והערך <code>true</code> נדחים עם <code>float_type</code>. בלי זה, Pydantic היה ממיר אותם בשקט, והלקוח לא היה יודע ששלח סוג לא נכון.`, `<code>allow_inf_nan=False</code>: אינסוף ו-NaN נדחים.`],
+      io: ["1000 (int)", "1000.0 (float)"],
+      vars: [["area_m2", "1000.0"], ["rule", "gt=0, strict=True, allow_inf_nan=False"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_crop, extra: [L.s_pc_soil, L.s_pc_eid], act: "Field",
+      title: "crop_id, soil_id, emitter_id: רק טקסט",
+      text: `שלושת השדות האלה צריכים להיות טקסט, וזה כל מה שנבדק כאן. הבודק לא יודע אם <code>'tomato'</code> באמת קיים בקטלוג.`,
+      why: `Pydantic לא מכיר את המסד. בדיקת הקיום נעשית בהמשך, ב-<code>check_references</code>.`,
+      vars: [["crop_id", "'tomato'"], ["soil_id", "'loam'"], ["emitter_id", "'dripnet-pc-1.0'"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_date, extra: [L.s_date], act: "Field", inline: "✓ matches ^YYYY-MM-DD$",
+      title: "planting_date: האם התאריך בפורמט הנכון?",
+      text: `הבודק מוודא שהתאריך כתוב בדיוק בצורה <code>YYYY-MM-DD</code>. <code>'2026-03-01'</code> מתאים. הערך נשאר טקסט.`,
+      why: `כך כל התאריכים נשמרים ב-SQLite באותו פורמט.`,
+      tech: [`הכלל הוא ביטוי רגולרי: <code>^[0-9]{4}-[0-9]{2}-[0-9]{2}$</code>.`],
+      vars: [["planting_date", "'2026-03-01'"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_future_cmp, range: [L.s_future, L.s_future_ret], act: "Step Into", inline: "→ False",
+      arrows: [["schemas", "schemas", "call", "not_in_future('2026-03-01')"]],
+      title: "planting_date: האם התאריך לא בעתיד?",
+      text: `אחרי בדיקת הפורמט, הבודק מפעיל פונקציה שכתבנו בעצמנו, <code>not_in_future</code>. היא בודקת שתאריך השתילה לא אחרי היום. <code>2026-03-01</code> עובר.`,
+      why: `כלל שתלוי ביום הנוכחי אי אפשר לכתוב כהגדרה קבועה, ולכן הוא כתוב כפונקציה.`,
+      flow: `Pydantic קורא לפונקציה שלנו, <code>not_in_future</code>, ב-<code>schemas.py</code>. היא מחזירה את הערך בלי לשנות אותו.`,
+      tech: [`<code>AfterValidator(not_in_future)</code>: מריץ את הפונקציה אחרי הבדיקות המובנות.`, `תאריך עתידי היה גורם ל-<code>ValueError</code>, ו-Pydantic היה הופך אותו לשגיאת 422.`],
+      io: ["'2026-03-01'", "'2026-03-01'"],
+      vars: [["value", "'2026-03-01'"], ["date.today()", q(todayIso())], ["future?", "False"]],
+      stack: [fr("not_in_future", SC, L.s_future_cmp)].concat(pyd) });
+    P({ at: "schemas", file: SC, line: L.s_pc_row, extra: [L.s_pc_esp, L.s_pos], act: "Field",
+      title: "המרווחים: גם הם חייבים להיות חיוביים",
+      text: `<code>row_spacing_m</code> ו-<code>emitter_spacing_m</code> משתמשים באותו כלל כמו <code>area_m2</code>: מספר גדול מ-0. <code>1.5</code> ו-<code>0.4</code> עוברים.`,
+      why: `הכלל הוגדר פעם אחת (שורה ${L.s_pos}), והוא נבדק כאן בשלושה שדות.`,
+      vars: [["row_spacing_m", "1.5"], ["emitter_spacing_m", "0.4"]],
+      stack: pyd });
+    P({ at: "schemas", file: SC, line: L.s_pc_lat, extra: [L.s_pc_lon, L.s_lat, L.s_lon], act: "Field",
+      title: "lat ו-lon: האם המיקום על כדור הארץ?",
+      text: `קו רוחב חייב להיות בין ‎-90 ל-90, וקו אורך בין ‎-180 ל-180. <code>31.25</code> ו-<code>34.79</code> עוברים.`,
+      why: `מיקום מחוץ לטווחים האלה לא קיים על כדור הארץ.`,
+      tech: [`<code>lat = 95</code> היה נכשל עם <code>less_than_equal</code>.`],
+      vars: [["lat", "31.25"], ["lon", "34.79"]],
+      stack: pyd });
+    P({ at: "fastapi", file: SC, line: L.s_pc, range: [L.s_pc, L.s_pc_lon], act: "Return",
+      arrows: [["schemas", "fastapi", "ret", "PlotCreate(…) ✓"]],
+      title: "הגוף תקין: נוצר אובייקט PlotCreate",
+      text: `כל 11 השדות עברו. Pydantic מחזיר אובייקט <code>PlotCreate</code>, ואין שגיאות.`,
+      why: `FastAPI ממשיך לפונקציה של הכתובת רק אם אין אף שגיאה.`,
+      flow: `עכשיו יש ל-FastAPI ערך לכל פרמטר של <code>create_plot</code>: <code>body</code> מ-Pydantic, ו-<code>conn</code> מ-<code>get_db</code>.`,
+      tech: [`אחרי הבדיקה <code>farm_id</code> הוא אובייקט <code>UUID</code>, ו-<code>area_m2</code> הוא <code>1000.0</code>.`],
+      io: [null, "PlotCreate(farm_id=UUID(…), name='South block', area_m2=1000.0, …)"],
+      vars: [["values['body']", "PlotCreate(farm_id=UUID('b7e2…'), name='South block', area_m2=1000.0, …)"], ["values['conn']", "<sqlite3.Connection>"], ["errors", "[]"]],
+      stack: [F_SD].concat(BASE) });
+  }
+
+  function callCreatePlot() {
+    P({ at: "router", file: RP, line: L.rp_def, range: [L.rp_dec, L.rp_def], act: "Call",
+      fw: "fastapi/routing.py · run_endpoint_function() → run_in_threadpool()",
+      arrows: [["fastapi", "router", "call", "create_plot(body, conn)"]],
+      title: "FastAPI מפעיל את create_plot",
+      text: `כל הערכים מוכנים, ו-FastAPI מפעיל את הפונקציה שלנו. היא מקבלת חלקה שכבר עברה בדיקה, וחיבור פתוח למסד.`,
+      why: `מכאן מתחיל הקוד שלנו. ה-router קובע באיזה סדר בודקים, ואיזה קוד סטטוס מחזירים.`,
+      flow: `FastAPI קורא ל-<code>create_plot(body, conn)</code> ב-<code>routers/plots.py</code>.`,
+      tech: [`<code>create_plot</code> מוגדרת עם <code>def</code> רגיל, ולכן FastAPI מריץ אותה ב-threadpool.`],
+      io: ["body=PlotCreate(…), conn", null],
+      vars: [["body.name", q(B.name)], ["body.farm_id", "UUID('b7e2c0a0-…')"], ["conn", "<sqlite3.Connection>"]],
+      stack: ep("create_plot", RP, L.rp_def) });
+  }
+
+  function checkRefsDetailed() {
+    var ck = function (l) { return [fr("check_references", RP, l), fr("create_plot", RP, L.rp_check)].concat(EP); };
+    P({ at: "router", file: RP, line: L.rp_ck_farm, range: [L.rp_ck_def, L.rp_ck_end], act: "Step Into",
+      arrows: [["router", "router", "call", "check_references(conn, fields)"]],
+      title: "בודקים שההפניות קיימות במסד",
+      text: `Pydantic בדק שהנתונים בנויים נכון. עכשיו ה-router בודק שהם קיימים: שיש חווה כזאת, ושהגידול, הקרקע והטפטפת נמצאים בקטלוג. הבדיקה הראשונה היא החווה.`,
+      why: `אם משהו חסר, הלקוח צריך לקבל תשובה ברורה: 404 <code>Farm not found</code>, או 422 <code>Unknown crop</code>, <code>Unknown soil</code> או <code>Unknown emitter</code>, כמו שהמפרט דורש.`,
+      flow: `<code>create_plot</code> קוראת ל-<code>check_references(conn, fields)</code>, שנמצאת באותו קובץ.`,
+      tech: [`גם SQLite בודק מפתחות זרים, אבל השגיאה שלו כללית: היא לא אומרת איזה שדה שגוי. הבדיקה המפורשת מאפשרת לבחור הודעה וקוד סטטוס.`],
+      io: ["fields", "None, or raise HTTPException"],
+      vars: [["fields['farm_id']", q(FARM_ID)]],
+      stack: ck(L.rp_ck_farm) });
+    var gf = [fr("get_farm", PF, L.pf_get_sql)].concat(ck(L.rp_ck_farm));
+    P({ at: "sqlite", file: PF, line: L.pf_get_sql, act: "Query",
+      op: { k: "SQL", t: "SELECT id, name FROM farms WHERE id = ?\n  ? = 'b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001'" },
+      arrows: [["router", "repo", "call", "farm_repository.get_farm(conn, 'b7e2…')"], ["repo", "sqlite", "call", "SELECT … FROM farms WHERE id = ?"], ["sqlite", "repo", "ret", "1 row"]],
+      title: "האם החווה קיימת?",
+      text: `ה-router שואל את ה-repository של החוות אם יש חווה עם המזהה הזה. ה-repository מריץ שאילתה, ו-SQLite מוצא שורה אחת.`,
+      why: `המזהה הגיע מהלקוח, ולכן הוא נשלח בנפרד מטקסט ה-SQL, דרך <code>?</code>. כך SQLite מתייחס אליו כנתון, ולא כקוד.`,
+      flow: `המעבר הוא מ-<code>routers/plots.py</code> אל <code>repositories/farms.py</code>. <code>check_references</code> קוראת ל-<code>farm_repository.get_farm(conn, ...)</code>.`,
+      tech: [`<code>?</code> הוא מקום שמור לערך. SQLite מכניס את הערך רק אחרי שהוא כבר הבין את הפקודה, ולכן אי אפשר להזריק דרכו SQL.`, `<code>fetchone()</code> מחזיר שורה אחת, או <code>None</code> אם אין.`],
+      io: ["farm_id", "row"],
+      vars: [["farm_id", q(FARM_ID)], ["row", "<sqlite3.Row id='b7e2…' name='Demo cooperative'>"]],
+      stack: gf });
+    P({ at: "repo", file: PF, line: L.pf_get_ret, act: "Return", inline: "→ {'id': 'b7e2…', 'name': 'Demo cooperative'}",
+      arrows: [["repo", "router", "ret", "{'id': …, 'name': 'Demo cooperative'}"]],
+      title: "החווה נמצאה",
+      text: `ה-repository מחזיר את החווה כמילון. ה-router רואה שהתוצאה היא לא <code>None</code>, ולכן לא זורק שגיאה וממשיך לבדיקה הבאה.`,
+      why: `ה-repository רק מחזיר נתונים או <code>None</code>. ה-router הוא שמחליט מה זה אומר ב-HTTP.`,
+      flow: `המילון חוזר מ-<code>repositories/farms.py</code> אל <code>check_references</code> ב-<code>routers/plots.py</code>.`,
+      vars: [["return", "{'id': 'b7e2…', 'name': 'Demo cooperative'}"]],
+      stack: [fr("get_farm", PF, L.pf_get_ret)].concat(ck(L.rp_ck_farm)) });
+    var cat = [
+      ["crop", L.rp_ck_crop, "get_crop", "'tomato'", "crops", "{'id': 'tomato', 'name': 'Tomato'}"],
+      ["soil", L.rp_ck_soil, "get_soil", "'loam'", "soils", "{'id': 'loam', 'name': 'Loam', 'available_water_mm_per_m': 175}"],
+      ["emitter", L.rp_ck_em, "get_emitter", "'dripnet-pc-1.0'", "emitters", "{'id': 'dripnet-pc-1.0', 'name': 'DripNet PC', 'flow_lph': 1.0}"]
+    ];
+    var heb = { crop: "הגידול קיים", soil: "הקרקע קיימת", emitter: "הטפטפת קיימת" };
+    cat.forEach(function (c) {
+      P({ at: "router", file: RP, line: c[1], act: "Step Over", inline: c[2] + " → found ✓",
+        op: { k: "SQL", t: "SELECT … FROM " + c[4] + " WHERE id = ?\n  ? = " + c[3] },
+        arrows: [["router", "repo", "call", "catalogue_repository." + c[2] + "(conn, " + c[3] + ")"], ["repo", "sqlite", "call", "SELECT … FROM " + c[4] + " WHERE id = ?"], ["sqlite", "repo", "ret", "1 row"], ["repo", "router", "ret", "dict"]],
+        title: heb[c[0]],
+        text: `אותה בדיקה, הפעם מול הטבלה <code>${c[4]}</code> ב-<code>repositories/catalogues.py</code>. הערך <code>${c[3].replace(/'/g, "")}</code> נמצא, ולכן ממשיכים.`,
+        why: `אילו הערך לא היה קיים, הלקוח היה מקבל 422. לפי המפרט, הפניה לא מוכרת בתוך הגוף היא בעיה בקלט (422), ולא כתובת שלא קיימת (404).`,
+        flow: `<code>check_references</code> קוראת ל-<code>catalogue_repository.${c[2]}</code>. כאן לא נכנסים לתוך הפונקציה (Step Over), ורואים רק את התוצאה.`,
+        vars: [[c[0] + "_id", c[3]], ["return", c[5]]],
+        stack: ck(c[1]) });
+    });
+  }
+
+  function insertPlot(dup) {
+    var pS = function (l) { return [fr("create_plot", PP, l), fr("create_plot", RP, L.rp_create)].concat(EP); };
+    var id = dup ? "'3c9e…'" : "'8f6c6009-cd0e-49b0-b2d2-96d301816334'";
+    P({ at: "repo", file: PP, line: L.pp_cr_dict, act: "Step Into", inline: "→ id = " + (dup ? "'3c9e…'" : "'8f6c6009-…'"),
+      arrows: [["router", "repo", "call", "plot_repository.create_plot(conn, fields)"]],
+      title: "נכנסים ל-repository כדי לשמור את החלקה",
+      text: `כל ההפניות קיימות, ולכן ה-router מבקש מה-repository לשמור את החלקה. ה-repository יוצר לה מזהה חדש, ובונה מילון עם המזהה ועם 11 השדות.`,
+      why: `הקריאה עטופה ב-<code>try</code> ב-router. אם המסד יסרב לשמור, ה-router יתפוס את השגיאה ויתרגם אותה לתשובת HTTP.`,
+      flow: `<code>check_references</code> הסתיימה בלי שגיאה. <code>create_plot</code> ממשיכה לשורה ${L.rp_create}, וקוראת ל-<code>plot_repository.create_plot(conn, fields)</code> ב-<code>repositories/plots.py</code>.`,
+      tech: [`<code>{"id": str(uuid4()), **fields}</code>: מילון חדש עם המפתח <code>id</code>, ואחריו כל המפתחות של <code>fields</code>. <code>**</code> מעתיק את התוכן של מילון אחד לתוך מילון חדש.`],
+      io: ["fields (11 keys)", "plot (12 keys)"],
+      vars: [["plot['id']", id], ["plot['name']", q(B.name)], ["plot['farm_id']", q(FARM_ID)], ["len(plot)", "12"]],
+      stack: pS(L.pp_cr_dict) });
+    P({ at: "repo", file: PP, line: L.pp_cr_with, act: "Enter",
+      title: "מתחילים טרנזקציה",
+      text: `כמו ביצירת חווה, <code>with conn:</code> פותח טרנזקציה. השמירה תקרה רק אם הכול יצליח.`,
+      why: `כך לא נשארת במסד כתיבה חלקית.`,
+      flow: `עדיין לא נשלח שום דבר ל-SQLite. הפקודה הבאה היא ה-INSERT.`,
+      tech: [`בסוף תקין <code>with conn</code> שולח COMMIT. אם יש שגיאה, הוא שולח ROLLBACK.`],
+      vars: [["conn.in_transaction", "False"]],
+      stack: pS(L.pp_cr_with) });
+    P({ at: "sqlite", file: PP, line: L.pp_cr_exec, extra: span(L.pp_ins, L.pp_ins_end), act: "Execute",
+      op: { k: "SQL", t: "BEGIN\nINSERT INTO plots (id, farm_id, name, area_m2, crop_id, planting_date, soil_id,\n                   row_spacing_m, emitter_spacing_m, emitter_id, lat, lon)\nVALUES (:id, :farm_id, :name, :area_m2, …)\n  :id = " + id + "\n  :farm_id = 'b7e2c0a0-…'   :name = " + q(B.name) + "\n  :area_m2 = 1000.0   :crop_id = 'tomato'   :planting_date = '2026-03-01' …" },
+      arrows: [["repo", "sqlite", "call", "INSERT INTO plots (…12 columns) VALUES (:id, …)"]],
+      title: "שולחים ל-SQLite את החלקה החדשה",
+      text: `ה-repository שולח ל-SQLite פקודת INSERT עם כל 12 הערכים של החלקה.`,
+      why: `השאילתה קבועה, והערכים נשלחים בנפרד. כך קל לקרוא אותה, והיא בטוחה מפני SQL injection.`,
+      flow: `ה-repository קורא ל-<code>conn.execute(INSERT_PLOT, plot)</code>. לפני שהשורה נכנסת, SQLite יבדוק את החוקים של הטבלה.`,
+      tech: [`<code>INSERT_PLOT</code> מוגדר בראש הקובץ (מסומן בקוד).`, `כל <code>:name</code> בשאילתה מקבל את הערך מהמפתח באותו שם במילון <code>plot</code>. לכן סדר המפתחות לא משנה.`],
+      io: ["plot dict", dup ? "?" : "→ SQLite"],
+      vars: [["conn.in_transaction", "True"], ["params", "plot (12 keys)"]],
+      stack: pS(L.pp_cr_exec) });
+    if (!dup) {
+      P({ at: "sqlite", file: SEED, line: L.seed_unique, range: [L.seed_plots, L.seed_unique + 1], extra: [L.seed_fk_farm, L.seed_fk_crop, L.seed_fk_soil, L.seed_fk_em], act: "Constraints", inline: "✓ all constraints pass",
+        arrows: [["sqlite", "sqlite", "call", "NOT NULL · 4 × FK · UNIQUE"], ["sqlite", "repo", "ret", "1 row inserted"]],
+        title: "SQLite בודק את החוקים של הטבלה",
+        text: `לפני שהשורה נכנסת, SQLite בודק את החוקים שהוגדרו לטבלה <code>plots</code>: אין ערכים ריקים, כל ההפניות קיימות, ואין שתי חלקות באותו שם באותה חווה. הכול תקין, והשורה נוספה.`,
+        why: `זו רשת הביטחון האחרונה: גם אם יהיה באג בבדיקות שלנו, המסד לא יסכים לשמור נתונים שבורים.`,
+        flow: `הקובץ המוצג הוא <code>seed_registry.sh</code>, כי שם מוגדרת הטבלה. SQLite מחזיר ל-repository שנוספה שורה אחת.`,
+        tech: [`<code>NOT NULL</code>: אסור ערך ריק.`, `<code>REFERENCES</code>: מפתח זר. הוא נאכף רק בגלל <code>PRAGMA foreign_keys = ON</code> ב-<code>get_db</code>.`, `<code>UNIQUE (farm_id, name)</code>: אותו שם יכול להופיע בחוות שונות, אבל לא פעמיים באותה חווה.`],
+        vars: [["rowcount", "1"], ["foreign_keys", "ON"]],
+        stack: pS(L.pp_cr_exec) });
+      P({ at: "repo", file: PP, line: L.pp_cr_with, act: "Commit", inline: "COMMIT", op: { k: "SQL", t: "COMMIT" },
+        arrows: [["repo", "sqlite", "call", "COMMIT"]],
+        title: "הטרנזקציה נשמרת (COMMIT)",
+        text: `הבלוק של <code>with conn</code> הסתיים בלי שגיאה, ולכן החלקה נשמרה בקובץ.`,
+        why: `בלי COMMIT, ה-INSERT היה מתבטל כשהחיבור נסגר.`,
+        flow: `<code>sqlite3</code> שולח COMMIT, והביצוע ממשיך לשורה <code>return plot</code>.`,
+        vars: [["conn.in_transaction", "False"], ["committed", "True"]],
+        stack: pS(L.pp_cr_with) });
+      P({ at: "repo", file: PP, line: L.pp_cr_ret, act: "Return", inline: "→ plot",
+        arrows: [["repo", "router", "ret", "plot dict (12 keys)"]],
+        title: "ה-repository מחזיר את החלקה",
+        text: `ה-repository מחזיר את המילון שבנה, כולל המזהה החדש.`,
+        why: `אין צורך לקרוא את השורה שוב מהמסד: כל הנתונים כבר ידועים.`,
+        flow: `המילון חוזר מ-<code>repositories/plots.py</code> אל <code>create_plot</code> ב-<code>routers/plots.py</code>.`,
+        vars: [["return['id']", id], ["return['name']", "'South block'"]],
+        stack: pS(L.pp_cr_ret) });
+      P({ at: "router", file: RP, line: L.rp_create, act: "Return", inline: "→ plot",
+        arrows: [["router", "fastapi", "ret", "plot dict"]],
+        title: "create_plot מחזירה את החלקה ל-FastAPI",
+        text: `לא הייתה שגיאה, ולכן <code>create_plot</code> מחזירה ל-FastAPI את המילון כמו שהוא.`,
+        why: `ה-router לא בונה JSON ולא קובע headers. את הסטטוס 201 FastAPI לוקח מהדקורטור.`,
+        flow: `הקוד שלנו סיים. FastAPI יבדוק את המילון ויהפוך אותו לתשובה.`,
+        vars: [["return", "{'id': '8f6c6009-…', 'farm_id': 'b7e2…', 'name': 'South block', …}"]],
+        stack: ep("create_plot", RP, L.rp_create) });
+      return;
+    }
+    /* duplicate: the INSERT fails */
+    P({ at: "sqlite", file: SEED, line: L.seed_unique, range: [L.seed_plots, L.seed_unique + 1], extra: [L.seed_north], mode: "raise", act: "Exception", inline: "✗ UNIQUE constraint failed",
+      arrows: [["sqlite", "sqlite", "err", "UNIQUE (farm_id, name) ✗"], ["sqlite", "repo", "err", "IntegrityError"]],
+      title: "SQLite מסרב: השם כבר תפוס בחווה",
+      text: `SQLite מגלה שלחווה הזאת כבר יש חלקה בשם <code>North block</code>, ומסרב להוסיף את השורה. במקום תוצאה, הוא מחזיר שגיאה.`,
+      why: `רק המסד יכול להבטיח שהשם ייחודי, גם כששתי בקשות מגיעות באותו רגע. בדיקה בקוד לפני ה-INSERT לא הייתה מספיקה.`,
+      flow: `<code>conn.execute</code> לא מחזיר תוצאה. במקום זה נזרקת שגיאה, <code>IntegrityError</code>, בתוך ה-repository.`,
+      tech: [`החוק שנשבר הוא <code>UNIQUE (farm_id, name)</code>. השורה המסומנת ב-seed היא החלקה שכבר קיימת.`, `לשגיאה יש <code>sqlite_errorname = 'SQLITE_CONSTRAINT_UNIQUE'</code>, שם קבוע שמזהה את סוג ההפרה.`],
+      io: ["INSERT", "IntegrityError"],
+      vars: [["exc", "IntegrityError('UNIQUE constraint failed: plots.farm_id, plots.name')"], ["exc.sqlite_errorname", "'SQLITE_CONSTRAINT_UNIQUE'"]],
+      stack: pS(L.pp_cr_exec) });
+    P({ at: "repo", file: PP, line: L.pp_cr_with, mode: "raise", act: "Rollback", inline: "ROLLBACK", op: { k: "SQL", t: "ROLLBACK" },
+      arrows: [["repo", "sqlite", "call", "ROLLBACK"]],
+      title: "הטרנזקציה מתבטלת (ROLLBACK)",
+      text: `השגיאה יוצאת מהבלוק של <code>with conn</code>, ולכן הטרנזקציה מתבטלת. השגיאה לא נעצרת כאן: היא ממשיכה למעלה, ל-router.`,
+      why: `ה-repository לא מחליט מה המשמעות של השגיאה ב-HTTP. הוא רק דואג שהמסד יישאר נקי.`,
+      flow: `<code>return plot</code> לא רץ. השגיאה עוברת מ-<code>repositories/plots.py</code> אל <code>routers/plots.py</code>.`,
+      vars: [["conn.in_transaction", "False"], ["exc", "IntegrityError (propagating)"]],
+      stack: pS(L.pp_cr_with) });
+    P({ at: "router", file: RP, line: L.rp_except, extra: [L.rp_create], mode: "raise", act: "Catch",
+      arrows: [["repo", "router", "err", "IntegrityError"]],
+      title: "ה-router תופס את השגיאה",
+      text: `השגיאה מגיעה ל-<code>create_plot</code>, לשורה שקראה ל-repository. ה-<code>except</code> שמתחתיה תופס אותה.`,
+      why: `בלי ה-<code>except</code> הזה, השגיאה הייתה מגיעה למטפל של SQLite ב-<code>main.py</code>. זו לא תקלה של זמינות, ולכן הלקוח היה מקבל 500 במקום 409.`,
+      flow: `<code>except sqlite3.IntegrityError as exc</code> תופס את השגיאה ושומר אותה בשם <code>exc</code>. השורה הבאה מעבירה אותה ל-<code>raise_for_integrity_error</code>.`,
+      tech: [`<code>IntegrityError</code> יורשת מ-<code>sqlite3.DatabaseError</code>, ולכן המטפל ב-<code>main.py</code> היה מתאים לה.`, `<code>is_unavailable</code> הייתה מחזירה <code>False</code>, כי <code>SQLITE_CONSTRAINT_UNIQUE</code> לא ברשימה.`],
+      vars: [["exc", "IntegrityError('UNIQUE constraint failed: plots.farm_id, plots.name')"]],
+      stack: ep("create_plot", RP, L.rp_except) });
+    var rS = [fr("raise_for_integrity_error", RP, L.rp_rie_uniq), fr("create_plot", RP, L.rp_rie_call)].concat(EP);
+    P({ at: "router", file: RP, line: L.rp_rie_uniq, range: [L.rp_rie_def, L.rp_rie_def + 6], act: "Step Into", inline: "→ True",
+      arrows: [["router", "router", "call", "raise_for_integrity_error(exc)"]],
+      title: "איזה חוק נשבר?",
+      text: `פונקציית עזר ב-router בודקת איזה חוק של המסד נשבר. כאן זה החוק של שם ייחודי.`,
+      why: `לכל הפרה יש תשובה אחרת. שם כפול הוא 409. חווה שנמחקה בין הבדיקה לשמירה היא 404. כל דבר אחר הוא באג, והשגיאה נזרקת הלאה.`,
+      flow: `<code>create_plot</code> קוראת ל-<code>raise_for_integrity_error(exc)</code>, שבודקת את <code>exc.sqlite_errorname</code>.`,
+      tech: [`בדיקה לפי שם השגיאה מדויקת יותר מחיפוש מילים בהודעת הטקסט.`, `<code>NoReturn</code> בחתימה אומר שהפונקציה אף פעם לא מחזירה ערך: היא תמיד זורקת שגיאה.`],
+      vars: [["exc.sqlite_errorname", "'SQLITE_CONSTRAINT_UNIQUE'"]],
+      stack: rS });
+    P({ at: "router", file: RP, line: L.rp_rie_409, mode: "raise", act: "Raise", inline: "✗ HTTPException(409)",
+      title: "השגיאה הופכת ל-409 Conflict",
+      text: `ה-router זורק שגיאת HTTP חדשה: 409, עם ההודעה <code>"Plot name already exists on this farm"</code>.`,
+      why: `המפרט קובע: שם חלקה כפול באותה חווה מחזיר 409.`,
+      flow: `השגיאה החדשה, <code>HTTPException</code>, יוצאת מ-<code>raise_for_integrity_error</code> ומ-<code>create_plot</code>, ועולה אל FastAPI.`,
+      tech: [`<code>from exc</code> שומר את השגיאה המקורית של SQLite כסיבה (<code>__cause__</code>). היא תופיע בלוגים, אבל לא תגיע ללקוח.`],
+      vars: [["exc", "HTTPException(409, 'Plot name already exists on this farm')"], ["exc.__cause__", "IntegrityError(…)"]],
+      stack: [fr("raise_for_integrity_error", RP, L.rp_rie_409), fr("create_plot", RP, L.rp_rie_call)].concat(EP) });
+    errTail({ exc: "HTTPException", excRepr: "HTTPException(409, 'Plot name already exists on this farm')", from: "router",
+      unwind: [fr("raise_for_integrity_error", RP, L.rp_rie_409), fr("create_plot", RP, L.rp_rie_call), F_TP, F_RE], mro: "fastapi.HTTPException → starlette.HTTPException → Exception",
+      handler: "http_exception_handler",
+      handlerText: `המטפל בונה תשובת 409 עם ההודעה מה-router. השגיאה המקורית של SQLite לא מגיעה ללקוח.` });
+    finalStep(`ארבע בדיקות ההפניות עברו, אבל ה-INSERT נכשל על <code>UNIQUE (farm_id, name)</code>. הטרנזקציה בוטלה, ה-router תרגם את שגיאת המסד ל-409, ובמסד לא השתנה דבר.`,
+      [["SQL", "PRAGMA + 4 × SELECT + INSERT ✗ + ROLLBACK"], ["transactions", "1 (rolled back)"]]);
+  }
+
+  /* outbound: success */
+  function outOk(file, a, b, modelText) {
+    phase = "out";
+    P({ at: "schemas", file: file, line: a, range: [a, b], act: "Validate",
+      fw: "fastapi/routing.py · serialize_response()",
+      arrows: [["fastapi", "schemas", "call", "validate → " + C.model]],
+      title: "FastAPI בודק את התשובה מול " + C.model,
+      text: modelText,
+      why: `<code>response_model</code> מבטיח שיוצא ללקוח רק מה שהמודל מגדיר. אם הקוד שלנו היה מחזיר שדה חסר או ערך מסוג שגוי, הלקוח היה מקבל שגיאת 500, ולא נתונים שבורים.`,
+      flow: `FastAPI מעביר את מה שה-router החזיר לבודק של <code>${C.model}</code> מ-<code>schemas.py</code>. זה אותו סוג בודק שבדק את הקלט, והפעם הוא בודק את הפלט.`,
+      tech: [`<code>response_model</code> נלקח מהדקורטור של הכתובת, בזמן העלייה.`, `אם הבדיקה נכשלת, FastAPI זורק <code>ResponseValidationError</code>, והלקוח מקבל 500.`, `שדות שלא מוגדרים במודל לא יוצאים ללקוח.`],
+      io: ["dict / list[dict]", C.model],
+      vars: [["response_model", C.model], ["loc", "('response',)"]],
+      stack: [F_PYD(C.model), F_SER].concat(BASE) });
+    P({ at: "fastapi", file: C.rfile, line: C.dec, act: "Serialize", inline: "→ " + R.len + " bytes",
+      arrows: [["schemas", "fastapi", "ret", "JSON bytes (" + R.len + ")"]],
+      title: "בונים את התשובה: JSON וסטטוס " + R.status,
+      text: `התשובה שנבדקה הופכת לטקסט JSON, ו-FastAPI עוטף אותו בתשובת HTTP עם סטטוס ${R.status}.`,
+      why: C.status === 201 ? `את הסטטוס 201 כתבנו פעם אחת, בדקורטור (<code>status_code=201</code>), ולא בתוך הפונקציה.` : `לא כתבנו סטטוס, ולכן FastAPI משתמש בברירת המחדל: 200.`,
+      flow: `התשובה מוכנה, אבל עוד לא נשלחה. בצעד הבא FastAPI ימסור אותה ל-uvicorn.`,
+      tech: [`Pydantic כותב את ה-JSON ישירות לבתים, עם <code>dump_json</code>, שכתוב ב-Rust.`, `FastAPI עוטף את הבתים ב-<code>Response</code> עם <code>content-type: application/json</code> ו-<code>content-length: ${R.len}</code>.`],
+      io: [C.model, R.len + " bytes"],
+      vars: [["status_code", String(R.status)], ["media_type", "'application/json'"], ["content-length", String(R.len)]],
+      stack: [F_SER].concat(BASE) });
+    sendSteps(false);
+    P({ at: "deps", file: D, line: L.d_close, extra: [L.d_yield, L.d_finally], act: "Cleanup", inline: "conn closed",
+      fw: "fastapi/routing.py · request_response.app → AsyncExitStack.__aexit__",
+      arrows: [["fastapi", "deps", "call", "resume get_db after yield"], ["deps", "sqlite", "call", "conn.close()"]],
+      title: "רק עכשיו החיבור נסגר",
+      text: `התשובה כבר נשלחה ללקוח. עכשיו FastAPI ממשיך את <code>get_db</code>, שהייתה מושהית, והיא סוגרת את החיבור.`,
+      why: `כל חיבור שנפתח חייב להיסגר. אחרת, כל בקשה הייתה משאירה חיבור פתוח, והם היו מצטברים.`,
+      flow: `<code>get_db</code> ממשיכה מה-<code>yield</code> אל ה-<code>finally</code>, ומפעילה <code>conn.close()</code>. זה נמדד בהרצה אמיתית: הסגירה קורית אחרי שהתשובה נשלחה.`,
+      tech: [`<code>finally</code>: קוד שרץ תמיד בסוף ה-<code>try</code>, גם בהצלחה וגם בשגיאה.`, `FastAPI אוסף את הניקוי של כל התלויות עם <code>yield</code> ב-<code>AsyncExitStack</code>: רשימה של פעולות ניקוי שרצות בסוף הבקשה.`],
+      vars: [["conn", "<sqlite3.Connection> (closed)"], ["open connections", "0"]],
+      stack: [fr("get_db", D, L.d_close), F_CM, F_RR, F_MW, F_UV] });
+  }
+
+  /* outbound: error */
+  function errTail(o) {
+    phase = "out";
+    var arrows = [];
+    if (o.from !== "fastapi") arrows.push([o.from, "fastapi", "err", o.exc]);
+    arrows.push(["fastapi", "deps", "err", "throw " + o.exc + " at yield"], ["deps", "sqlite", "call", "conn.close()"]);
+    P({ at: "deps", file: D, line: L.d_close, extra: [L.d_yield, L.d_finally], mode: "raise", act: "Unwind", inline: "conn closed",
+      fw: "fastapi/routing.py · request_response.app → AsyncExitStack.__aexit__",
+      arrows: arrows,
+      title: "השגיאה עולה למעלה, והחיבור נסגר בדרך",
+      text: `אף אחד בדרך לא תופס את השגיאה <code>${o.exc}</code>, ולכן היא עולה עד FastAPI. בדרך, FastAPI ממשיך את <code>get_db</code>, והיא סוגרת את החיבור.`,
+      why: `<code>get_db</code> לא תופסת שגיאות (אין בה <code>except</code>). היא רק סוגרת את החיבור, והשגיאה ממשיכה הלאה.`,
+      flow: o.closeNote || `הסגירה קורית <b>לפני</b> שנבנית תשובת השגיאה. זה נמדד בהרצה אמיתית.`,
+      tech: [`FastAPI זורק את השגיאה לתוך <code>get_db</code>, בדיוק בשורה של ה-<code>yield</code>. משם היא מגיעה ל-<code>finally</code>, שסוגר את החיבור.`, `הפונקציות שהשגיאה יצאה מהן מופיעות מחוקות במחסנית הקריאות.`],
+      vars: [["exc", o.excRepr], ["conn", "<sqlite3.Connection> (closed)"]],
+      stack: [fr("get_db", D, L.d_close), F_CM].concat(dead(o.unwind), [F_RR, F_MW, F_UV]) });
+    P({ at: "fastapi", file: M, line: L.m_app, act: "Catch",
+      fw: "starlette/_exception_handler.py · wrap_app_handling_exceptions() → _lookup_exception_handler()",
+      arrows: [["fastapi", "fastapi", "call", "find handler for " + o.exc]],
+      title: "FastAPI מחפש מי מטפל בשגיאה הזאת",
+      text: `FastAPI תופס את השגיאה ומחפש מטפל שנרשם לסוג שלה. הוא מוצא את <code>${o.handler}</code>, המטפל המובנה שנוסף כשנוצר <code>app</code>.`,
+      why: `המטפל שלנו, <code>database_error_handler</code>, רשום רק לשגיאות של SQLite, ולכן הוא לא מתאים כאן.`,
+      flow: `השגיאה נתפסה ב-<code>wrap_app_handling_exceptions</code> של Starlette. הוא יקרא למטפל שמצא.`,
+      tech: [`החיפוש עובר על שרשרת הירושה של השגיאה (<code>__mro__</code>): קודם הסוג עצמו, אחר כך הסוג שהוא יורש ממנו, וכן הלאה, עד שנמצא מטפל.`, `כאן השרשרת היא: <code>${o.mro}</code>.`],
+      vars: [["exc", o.excRepr], ["type(exc).__mro__", o.mro], ["handler", o.handler]],
+      stack: [F_WR, F_RR, F_MW, F_UV] });
+    P({ at: "fastapi", file: M, line: L.m_app, act: "Handle",
+      fw: "fastapi/exception_handlers.py · " + o.handler + "()",
+      op: { k: "JSON", t: R.body },
+      title: "המטפל בונה את תשובת השגיאה",
+      text: o.handlerText,
+      why: `כך הלקוח מקבל הודעה ברורה בפורמט קבוע. המרצה אישר שפורמט ברירת המחדל של FastAPI מספיק.`,
+      flow: `המטפל מחזיר <code>JSONResponse</code> עם סטטוס ${R.status}. בצעד הבא FastAPI ימסור אותה ל-uvicorn.`,
+      tech: [`הפורמט הוא ברירת המחדל של FastAPI, <code>{"detail": ...}</code>, ולא <code>application/problem+json</code>.`, `ההבהרה של המרצה: <code>docs/instructor-clarifications.md</code>.`],
+      io: [o.exc, "JSONResponse(" + R.status + ")"],
+      vars: [["status_code", String(R.status)], ["content-type", "'application/json'"], ["content-length", String(R.len)]],
+      stack: ["fastapi · " + o.handler + "   (exception_handlers.py)", F_WR, F_RR, F_MW, F_UV] });
+    sendSteps(true);
+  }
+
+  function sendSteps(isErr) {
+    P({ at: "fastapi", file: isErr ? M : C.rfile, line: isErr ? L.m_app : C.dec, act: "Send",
+      fw: (isErr ? "starlette/_exception_handler.py · wrapped_app" : "fastapi/routing.py · request_response.app") + " → await response(scope, receive, send)",
+      op: { k: "ASGI", t: "send({'type': 'http.response.start', 'status': " + R.status + ",\n      'headers': [(b'content-length', b'" + R.len + "'), (b'content-type', b'application/json')]})\nsend({'type': 'http.response.body', 'body': b'" + R.body.replace(/\s*\n\s*/g, "").slice(0, 48) + "…'})" },
+      arrows: [["fastapi", "uvicorn", isErr ? "err" : "ret", "send(http.response.start " + R.status + ")"], ["fastapi", "uvicorn", isErr ? "err" : "ret", "send(http.response.body)"]],
+      title: "FastAPI מוסר את התשובה ל-uvicorn",
+      text: `FastAPI לא שולח לרשת בעצמו. הוא מוסר את התשובה ל-uvicorn בשני חלקים: קודם הסטטוס וה-headers, ואחר כך הגוף.`,
+      why: `זה הצד השני של אותו הסכם מהכניסה: uvicorn מטפל ברשת, ו-FastAPI רק מתאר מה לשלוח.`,
+      flow: `FastAPI קורא פעמיים לפונקציה <code>send</code>, שקיבל מ-uvicorn בתחילת הבקשה.`,
+      tech: [`שתי ההודעות הן <code>http.response.start</code> (סטטוס ו-headers) ו-<code>http.response.body</code> (הגוף). הן מוצגות בכרטיס ה-ASGI.`],
+      vars: [["status", String(R.status)], ["headers", "content-length, content-type"]],
+      stack: [F_RR, F_MW, F_UV] });
+    P({ at: "client", file: "response.http", line: 1, range: [1, resN], act: "Response", mode: isErr ? "done-err" : "done",
+      arrows: [["uvicorn", "client", isErr ? "outerr" : "out", "HTTP/1.1 " + R.status + " " + R.reason]],
+      title: "uvicorn שולח את התשובה ללקוח",
+      text: `uvicorn כותב את התשובה לרשת, והלקוח מקבל אותה: <code>${R.status} ${R.reason}</code>.`,
+      why: `זו התשובה שהלקוח רואה. היא נלכדה מהשירות האמיתי עם <code>curl -i</code>.`,
+      flow: `uvicorn מוסיף שני headers משלו, שולח את הבתים, ומדפיס שורה ללוג.` + (isErr ? `` : ` החיבור למסד עוד פתוח. הוא ייסגר בצעד הבא.`),
+      tech: [`uvicorn מוסיף את <code>date</code> ואת <code>server: uvicorn</code>.`, `ב-JSON שעובר ברשת אין רווחים, ולכן <code>content-length</code> הוא ${R.len}. בלשונית הוא מוצג מעוצב, כדי שיהיה קל לקרוא.`, `שורת הלוג מופיעה במשתנים, תחת <code>access log</code>.`],
+      io: [null, "HTTP/1.1 " + R.status + " " + R.reason + " · " + R.len + " bytes"],
+      vars: [["status", R.status + " " + R.reason], ["content-type", "'application/json'"], ["content-length", String(R.len)], ["access log", accessLog(k)]],
+      stack: [F_UV] });
+  }
+
+  function finalStep(text, extra) {
+    var isErr = R.status >= 400;
+    var files = [];
+    S.forEach(function (s) { if (/\.py$/.test(s.file) && files.indexOf(s.file) < 0) files.push(s.file); });
+    P({ at: "client", file: "response.http", line: 1, range: [1, resN], act: "Done", mode: isErr ? "done-err" : "done", phase: "out",
+      title: "הבקשה הסתיימה: " + R.status + " " + R.reason,
+      text: text,
+      why: `הקבצים שהבקשה עברה בהם: <code>${files.join("</code>, <code>")}</code>.`,
+      flow: `<code>curl</code> קיבל את התשובה. הבקשה הסתיימה, וכל החיבורים שנפתחו בה נסגרו.`,
+      vars: [["status", R.status + " " + R.reason]].concat(extra, [["connections", "1 opened, 1 closed"], ["steps", String(S.length + 1)]]),
+      stack: ["curl   (client process)"],
+      final: { label: R.status + " " + R.reason, good: !isErr } });
+  }
+}
+</script>
+
+<script>
+/* ---------- rendering ---------- */
+var PY_RE = /(#.*$)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|(@[A-Za-z_][\w.]*)|\b(def|class|return|if|elif|else|try|except|finally|raise|from|import|as|with|for|in|not|and|or|is|None|True|False|pass|yield)\b|\b(\d+(?:\.\d+)?)\b/g;
+var SH_RE = /(#.*$)|('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")|\b(CREATE|TABLE|TEXT|INTEGER|REAL|NOT|NULL|PRIMARY|KEY|REFERENCES|UNIQUE|INSERT|INTO|VALUES|PRAGMA|ON|set|if|then|fi|echo|exit|rm|command)\b|\b(\d+(?:\.\d+)?)\b/g;
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function hlRe(line, re, classes) {
+  var out = "", last = 0, m;
+  re.lastIndex = 0;
+  while ((m = re.exec(line)) !== null) {
+    out += esc(line.slice(last, m.index));
+    var cls = "";
+    for (var g = 1; g < m.length; g++) if (m[g] !== undefined) { cls = classes[g - 1]; break; }
+    out += '<span class="' + cls + '">' + esc(m[0]) + "</span>";
+    last = re.lastIndex;
+    if (m[0].length === 0) re.lastIndex++;
+  }
+  return out + esc(line.slice(last));
+}
+function hlPy(line) { return hlRe(line, PY_RE, ["c1", "s1", "d1", "k1", "n1"]); }
+function hlSh(line) { return hlRe(line, SH_RE, ["c1", "s1", "k1", "n1"]); }
+function hlHttp(line, idx, inBody) {
+  if (idx === 0) return '<span class="h1s">' + esc(line) + "</span>";
+  if (!inBody) {
+    var c = line.indexOf(":");
+    if (c > 0) return '<span class="k1">' + esc(line.slice(0, c)) + "</span>" + esc(line.slice(c));
+    return esc(line);
+  }
+  return esc(line)
+    .replace(/&quot;([^&]*)&quot;(\s*):/g, '<span class="k1">&quot;$1&quot;</span>$2:')
+    .replace(/:\s(&quot;[^&]*&quot;)/g, ': <span class="s1">$1</span>')
+    .replace(/:\s(-?\d+(?:\.\d+)?)/g, ': <span class="n1">$1</span>');
+}
+function hlTerm(line) {
+  if (line.indexOf("$ ") === 0) return '<span class="h1s">' + esc(line) + "</span>";
+  return '<span class="c1">' + esc(line) + "</span>";
+}
+
+var LANE_IDX = {};
+LANES.forEach(function (l, i) { LANE_IDX[l.k] = i; });
+function laneX(k) { return (LANE_IDX[k] + 0.5) * 100 / LANES.length; }
+function laneName(k) { return LANES[LANE_IDX[k]].t; }
+
+var PY_FILES = ["main.py", "db.py", "schemas.py", "routers/catalogues.py", "routers/farms.py", "routers/plots.py",
+  "repositories/catalogues.py", "repositories/farms.py", "repositories/plots.py", "seed_registry.sh"];
+
+var scen = "emitters", S = [], idx = 0, shownFile = null, lineEls = [], marked = [], playing = false, timer = null;
+var codeEl = document.getElementById("code");
+var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function fnAt(file, line) {
+  var lines = FILES[file];
+  if (!/\.py$/.test(file) || !lines) return "—";
+  var t = lines[line - 1] || "";
+  if (/^\s*@/.test(t)) {
+    for (var i = line; i < lines.length; i++) { var md = lines[i].match(/^\s*def (\w+)/); if (md) return "@decorator of " + md[1] + "()"; }
+  }
+  var m = t.match(/^\s*(def|class) (\w+)/);
+  if (m) return m[1] === "class" ? "class " + m[2] : m[2] + "()";
+  if (/^\S/.test(t)) return "<module>  (top level)";
+  for (var j = line - 2; j >= 0; j--) {
+    var u = lines[j];
+    if (/^\S/.test(u)) {
+      var mm = u.match(/^(def|class) (\w+)/);
+      if (mm) return mm[1] === "class" ? "class " + mm[2] : mm[2] + "()";
+      return "<module>  (top level)";
+    }
+  }
+  return "<module>  (top level)";
+}
+function fullPath(file) {
+  if (file === "request.http" || file === "response.http" || file === "terminal") return file + "  (נלכד מהרשת)";
+  return "services/registry-service/" + file;
+}
+
+function renderFile(name) {
+  var lines = FILES[name];
+  var html = "", inBody = false;
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i], content;
+    if (/\.py$/.test(name)) content = hlPy(t);
+    else if (/\.sh$/.test(name)) content = hlSh(t);
+    else if (name === "terminal") content = hlTerm(t);
+    else { content = hlHttp(t, i, inBody); if (t === "") inBody = true; }
+    html += '<div class="ln" data-l="' + (i + 1) + '"><span class="gut">' + (i + 1) + '</span><span class="mk"></span><span class="src">' + (content || " ") + "</span></div>";
+  }
+  codeEl.innerHTML = html;
+  lineEls = codeEl.querySelectorAll(".ln");
+  marked = [];
+  shownFile = name;
+  document.getElementById("pathbar").innerHTML = esc(fullPath(name)).replace(/([^/]+)$/, "<b>$1</b>");
+}
+
+function tabNames() {
+  return scen === "startup" ? ["terminal"].concat(PY_FILES) : ["request.http"].concat(PY_FILES, ["response.http"]);
+}
+function renderTabs() {
+  var tabs = document.getElementById("tabs");
+  var used = {};
+  S.forEach(function (s) { used[s.file] = true; });
+  tabs.innerHTML = "";
+  tabNames().forEach(function (n) {
+    var b = document.createElement("button");
+    b.type = "button"; b.dataset.f = n; b.setAttribute("role", "tab");
+    var slash = n.lastIndexOf("/");
+    b.innerHTML = slash > 0 ? '<span class="dir">' + esc(n.slice(0, slash + 1)) + "</span>" + esc(n.slice(slash + 1)) : esc(n);
+    if (!used[n]) { b.classList.add("unused"); b.title = "לא בשימוש בתרחיש הזה"; }
+    b.addEventListener("click", function () {
+      if (b.disabled) return;
+      var peeking = n !== S[idx].file;
+      renderFile(n);
+      if (!peeking) paintLines(); else codeEl.scrollTop = 0;
+      updateTabs();
+      document.getElementById("peek").hidden = !peeking;
+    });
+    tabs.appendChild(b);
+  });
+}
+function updateTabs(flash) {
+  var s = S[idx];
+  var reached = S.slice(0, idx + 1).some(function (x) { return x.file === "response.http"; });
+  document.querySelectorAll("#tabs button").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.f === shownFile);
+    b.classList.toggle("live", b.dataset.f === s.file);
+    b.setAttribute("aria-selected", b.dataset.f === shownFile ? "true" : "false");
+    if (b.dataset.f === "response.http") b.disabled = !reached;
+    if (flash && b.dataset.f === s.file) {
+      b.classList.remove("flash"); void b.offsetWidth; b.classList.add("flash");
+      b.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  });
+}
+
+function stateClass(s) {
+  if (s.mode === "raise" || s.mode === "done-err") return "err";
+  if (s.mode === "done") return "ok";
+  return "";
+}
+
+function paintLines() {
+  var s = S[idx];
+  marked.forEach(function (el) {
+    el.classList.remove("cur", "rng", "err", "ok");
+    var inl = el.querySelector(".inl"); if (inl) inl.remove();
+  });
+  marked = [];
+  lineEls.forEach(function (el) { el.classList.remove("seen"); });
+  for (var j = 0; j < idx; j++) {
+    if (S[j].file === shownFile && lineEls[S[j].line - 1]) lineEls[S[j].line - 1].classList.add("seen");
+  }
+  function mark(n, c) { var el = lineEls[n - 1]; if (!el) return null; el.classList.add(c); marked.push(el); return el; }
+  if (s.range) for (var r = s.range[0]; r <= s.range[1]; r++) mark(r, "rng");
+  (s.extra || []).forEach(function (n) { mark(n, "rng"); });
+  var cur = mark(s.line, "cur");
+  if (!cur) return;
+  var sc = stateClass(s);
+  if (sc) cur.classList.add(sc);
+  if (s.inline) { var sp = document.createElement("span"); sp.className = "inl"; sp.textContent = s.inline; cur.appendChild(sp); }
+  var target = cur.offsetTop - codeEl.clientHeight / 2 + cur.offsetHeight / 2;
+  if (s.range && /\.(py|sh)$/.test(s.file)) {
+    var top = lineEls[s.range[0] - 1];
+    if (top && cur.offsetTop - top.offsetTop < codeEl.clientHeight * 0.6) target = top.offsetTop - 24;
+  }
+  if (!/\.(py|sh)$/.test(s.file)) target = 0;
+  codeEl.scrollTo({ top: Math.max(0, target), behavior: reduce ? "auto" : "smooth" });
+}
+
+function renderVars() {
+  var s = S[idx], prev = idx > 0 ? S[idx - 1] : null, map = {};
+  if (prev) prev.vars.forEach(function (p) { map[p[0]] = p[1]; });
+  var ul = document.getElementById("vars");
+  if (!s.vars || !s.vars.length) { ul.innerHTML = '<li class="none">אין משתנים בצעד הזה</li>'; return; }
+  ul.innerHTML = s.vars.map(function (p) {
+    var chg = !prev || map[p[0]] !== p[1];
+    return '<li class="' + (chg ? "chg" : "") + '"><span class="k">' + esc(p[0]) + '</span><span class="v">' + esc(p[1]) + "</span></li>";
+  }).join("");
+}
+function renderStack() {
+  var s = S[idx], firstLive = -1, html = "", sawWorker = false;
+  s.stack.forEach(function (f, n) { if (firstLive < 0 && typeof f === "string") firstLive = n; });
+  s.stack.forEach(function (f, n) {
+    var isDead = typeof f !== "string";
+    var t = isDead ? f.t : f;
+    var ours = /\.(py|sh):\d+$/.test(t);
+    var cls = isDead ? "dead" : (n === firstLive ? "top" : (ours ? "ours" : ""));
+    html += '<li class="' + cls + '">' + esc(t) + "</li>";
+    if (!sawWorker && /\[worker thread\]/.test(t) && n < s.stack.length - 1) {
+      sawWorker = true;
+      html += '<li class="thr">↓ מכאן ומטה: לולאת האירועים (event loop) של uvicorn</li>';
+    }
+  });
+  document.getElementById("stack").innerHTML = html;
+}
+
+/* ---------- sequence diagram ---------- */
+function buildLanes() {
+  var lanes = document.getElementById("lanes");
+  LANES.forEach(function (l) {
+    var d = document.createElement("div");
+    d.className = "node"; d.dataset.n = l.k; d.dataset.lane = l.k;
+    d.innerHTML = "<b>" + esc(l.t) + "</b><span>" + esc(l.s) + "</span>";
+    lanes.appendChild(d);
+  });
+}
+function arrowRow(a, i, s) {
+  var f = a[0], t = a[1], kind = a[2], label = a[3];
+  var x1 = laneX(f), x2 = laneX(t), inner;
+  if (f === t) {
+    var right = x1 > 75;
+    inner = '<span class="self" style="left:' + x1 + '%"></span>' +
+      '<span class="slbl" style="' + (right ? "right:calc(" + (100 - x1) + "% + 8px)" : "left:calc(" + x1 + "% + 22px)") + '">' + esc(label) + "</span>";
+  } else {
+    var l = Math.min(x1, x2), w = Math.abs(x2 - x1), mid = l + w / 2;
+    var anchor = mid > 72 ? " e" : (mid < 22 ? " s" : "");
+    inner = '<span class="ar ' + (x2 > x1 ? "r" : "l") + '" style="left:' + l + "%;width:" + w + '%"><span class="lbl' + anchor + '">' + esc(label) + "</span></span>";
+  }
+  return '<div class="row k-' + kind + '" data-i="' + i + '" tabindex="-1" title="' + esc((i + 1) + ". " + s.title) + '">' + inner + "</div>";
+}
+function noteRow(i, s) {
+  var x = laneX(s.at), right = x > 75;
+  return '<div class="row k-' + (stateClass(s) === "err" ? "err" : "ret") + '" data-i="' + i + '" tabindex="-1" title="' + esc((i + 1) + ". " + s.title) + '">' +
+    '<span class="dot" style="left:' + x + '%"></span><span class="slbl" style="' + (right ? "right:calc(" + (100 - x) + "% + 10px)" : "left:calc(" + x + "% + 10px)") + '">' + esc(s.act) + ' · <bdi dir="rtl">' + esc(s.title) + "</bdi></span></div>";
+}
+function renderSeq() {
+  var rows = document.getElementById("seqrows"), html = "", last = null;
+  LANES.forEach(function (l) { html += '<div class="life" data-k="' + l.k + '" style="left:' + laneX(l.k) + '%"></div>'; });
+  S.forEach(function (s, i) {
+    if (s.phase !== last) { html += '<div class="prow" data-p="' + s.phase + '"><span>' + esc(PHASES[s.phase]) + "</span></div>"; last = s.phase; }
+    if (s.arrows && s.arrows.length) s.arrows.forEach(function (a) { html += arrowRow(a, i, s); });
+    else html += noteRow(i, s);
+  });
+  rows.innerHTML = html;
+  var used = {};
+  S.forEach(function (s) { used[s.at] = true; (s.arrows || []).forEach(function (a) { used[a[0]] = true; used[a[1]] = true; }); });
+  document.querySelectorAll("#lanes .node").forEach(function (n) { n.classList.toggle("idle", !used[n.dataset.n]); });
+}
+function updateSeq() {
+  var s = S[idx];
+  var first = null;
+  document.querySelectorAll("#seqrows .row").forEach(function (r) {
+    var i = Number(r.dataset.i);
+    r.classList.toggle("now", i === idx);
+    r.classList.toggle("future", i > idx);
+    if (i === idx && !first) first = r;
+  });
+  document.querySelectorAll("#seqrows .life").forEach(function (l) { l.classList.toggle("on", l.dataset.k === s.at); });
+  var body = document.getElementById("seqbody");
+  if (first && !body.classList.contains("full")) {
+    var t = first.offsetTop - body.clientHeight / 2 + first.offsetHeight;
+    body.scrollTo({ top: Math.max(0, t), behavior: reduce ? "auto" : "smooth" });
+  }
+  var sc = stateClass(s);
+  document.querySelectorAll("#lanes .node").forEach(function (n) {
+    var on = n.dataset.n === s.at;
+    n.classList.toggle("on", on);
+    n.classList.toggle("err", on && sc === "err");
+    n.classList.toggle("ok", on && sc === "ok");
+  });
+  var pk = document.getElementById("packet");
+  pk.style.left = laneX(s.at) + "%";
+  pk.classList.toggle("err", sc === "err");
+  pk.classList.toggle("ok", sc === "ok");
+}
+
+function renderTimeline() {
+  var tl = document.getElementById("tl");
+  tl.innerHTML = "";
+  S.forEach(function (s, n) {
+    var b = document.createElement("button");
+    b.type = "button"; b.dataset.lane = s.at;
+    if (stateClass(s) === "err") b.classList.add("errstep");
+    if (n > 0 && S[n - 1].phase !== s.phase) b.classList.add("gap");
+    b.setAttribute("aria-label", "צעד " + (n + 1) + ": " + s.title);
+    b.title = (n + 1) + ". " + s.title;
+    b.addEventListener("click", function () { stop(); go(n); });
+    tl.appendChild(b);
+  });
+}
+
+function stripHtml(h) { var d = document.createElement("div"); d.innerHTML = h; return d.textContent; }
+function nextText() {
+  var n = S[idx + 1];
+  if (!n) return "סוף התרחיש.";
+  if (n.arrows && n.arrows.length) {
+    var a = n.arrows[0];
+    var who = a[0] === a[1] ? laneName(a[0]) : laneName(a[0]) + " → " + laneName(a[1]);
+    return '<bdi dir="rtl">' + esc(n.title) + "</bdi> · <code>" + esc(who + ": " + a[3]) + "</code>";
+  }
+  return '<bdi dir="rtl">' + esc(n.title) + "</bdi>";
+}
+
+function update() {
+  var s = S[idx], prev = idx > 0 ? S[idx - 1] : null;
+  document.getElementById("peek").hidden = true;
+  var fileChanged = shownFile !== s.file;
+  if (fileChanged) {
+    renderFile(s.file);
+    if (prev) { codeEl.classList.remove("flash"); void codeEl.offsetWidth; codeEl.classList.add("flash"); }
+  }
+  paintLines();
+  updateTabs(fileChanged && prev);
+  var sc = stateClass(s);
+  var ex = document.getElementById("explain");
+  ex.classList.toggle("err", sc === "err");
+  ex.classList.toggle("ok", sc === "ok");
+  var act = document.getElementById("act");
+  act.textContent = s.act; act.className = "act" + (sc ? " " + sc : "");
+  var chip = document.getElementById("lanechip");
+  chip.textContent = laneName(s.at); chip.dataset.lane = s.at;
+  document.getElementById("wFile").textContent = fullPath(s.file);
+  document.getElementById("wFn").textContent = s.fn || fnAt(s.file, s.line);
+  var lines = "L" + s.line;
+  if (s.range) lines += "   (range L" + s.range[0] + "–L" + s.range[1] + ")";
+  if (s.extra && s.extra.length) lines += "   + L" + s.extra.join(", L");
+  document.getElementById("wLines").textContent = lines;
+  document.getElementById("wFw").textContent = s.fw || "—";
+  document.getElementById("wFwK").textContent = "ספרייה";
+  var hop = document.getElementById("hop");
+  if (prev && prev.file !== s.file) {
+    hop.hidden = false;
+    hop.innerHTML = "↪ <b>" + esc(prev.file) + ":" + prev.line + "</b> → <b>" + esc(s.file) + ":" + s.line + "</b>";
+    hop.style.animation = "none"; void hop.offsetWidth; hop.style.animation = "";
+  } else hop.hidden = true;
+  document.getElementById("exTitle").textContent = s.title;
+  document.getElementById("exText").innerHTML = s.text;
+  document.getElementById("whyRow").hidden = !s.why;
+  document.getElementById("exWhy").innerHTML = s.why || "";
+  var DOES = { run: "▶ רץ עכשיו", define: "✎ הגדרה בלבד: הקוד שבפנים עוד לא רץ", register: "✎ רישום: ירוץ רק כשתגיע בקשה", skip: "⏭ לא רץ" };
+  var doesEl = document.getElementById("does");
+  var dk = s.does || "run";
+  doesEl.textContent = DOES[dk]; doesEl.className = "does " + dk;
+  document.getElementById("flowRow").hidden = !s.flow;
+  document.getElementById("exFlow").innerHTML = s.flow || "";
+  var techBox = document.getElementById("techBox");
+  techBox.hidden = !(s.tech && s.tech.length);
+  document.getElementById("exTech").innerHTML = (s.tech || []).map(function (t) { return "<li>" + t + "</li>"; }).join("");
+  var io = s.io || [];
+  document.getElementById("ioRow").hidden = !(io[0] || io[1]);
+  document.getElementById("exIo").innerHTML = (io[0] ? '<span class="i">' + esc(io[0]) + "</span>" : "") + (io[1] ? '<span class="o">' + esc(io[1]) + "</span>" : "");
+  document.getElementById("exNext").innerHTML = nextText();
+  var op = document.getElementById("opCard");
+  if (s.op) {
+    op.hidden = false;
+    var titles = { SQL: "פעולת מסד נתונים (SQL)", SQLite: "פעולה על SQLite", ASGI: "הודעות ASGI אל uvicorn", JSON: "גוף התשובה (JSON)" };
+    document.getElementById("opTitle").textContent = titles[s.op.k] || s.op.k;
+    document.getElementById("opText").textContent = s.op.t;
+  } else op.hidden = true;
+  renderVars();
+  renderStack();
+  updateSeq();
+  document.getElementById("counter").textContent = "צעד " + (idx + 1) + " מתוך " + S.length;
+  var ph = document.getElementById("phase");
+  ph.textContent = PHASES[s.phase]; ph.dataset.p = s.phase;
+  var st = document.getElementById("status");
+  if (s.final) { st.textContent = s.final.label; st.className = "pill " + (s.final.good ? "good" : "bad"); }
+  else if (sc === "err") { st.textContent = "חריגה"; st.className = "pill bad"; }
+  else { st.textContent = "רץ"; st.className = "pill"; }
+  document.querySelectorAll("#tl button").forEach(function (b, n) {
+    b.classList.toggle("past", n < idx);
+    b.classList.toggle("now", n === idx);
+    if (n === idx) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+  });
+  document.getElementById("bBack").disabled = idx === 0;
+  document.getElementById("bRestart").disabled = idx === 0;
+  document.getElementById("bStep").disabled = idx === S.length - 1;
+}
+
+function go(n) { idx = Math.max(0, Math.min(S.length - 1, n)); update(); }
+function next() { if (idx < S.length - 1) go(idx + 1); else stop(); }
+function back() { go(idx - 1); }
+function setPlayUI() {
+  document.getElementById("playLabel").textContent = playing ? "השהיה" : "הפעלה";
+  document.getElementById("playIcon").setAttribute("d", playing ? "M3 2h4v12H3zM9 2h4v12H9z" : "M3 2v12l11-6z");
+  document.getElementById("bPlay").setAttribute("aria-pressed", playing ? "true" : "false");
+}
+function stop() { playing = false; clearInterval(timer); timer = null; setPlayUI(); }
+function play() {
+  if (idx === S.length - 1) go(0);
+  playing = true; setPlayUI();
+  clearInterval(timer);
+  timer = setInterval(function () { if (idx >= S.length - 1) stop(); else next(); }, Number(document.getElementById("speed").value));
+}
+
+function loadScenario(k) {
+  stop();
+  scen = k;
+  FILES["terminal"] = TERMINAL.split("\n");
+  if (k !== "startup") {
+    FILES["request.http"] = requestText(k).split("\n");
+    FILES["response.http"] = responseText(k).split("\n");
+  }
+  S = build(k);
+  shownFile = null;
+  idx = 0;
+  document.querySelectorAll("#scen button").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.k === k ? "true" : "false"); });
+  renderTabs();
+  renderSeq();
+  renderTimeline();
+  update();
+  try { history.replaceState(null, "", "#" + k); } catch (e) { /* hash routing is optional */ }
+}
+
+(function init() {
+  if (MISSING.length) console.error("Source lines not found (the code changed; rebuild the debugger):", MISSING);
+  document.getElementById("ver").textContent = VERSIONS;
+  var box = document.getElementById("scen");
+  SCEN.forEach(function (s) {
+    var b = document.createElement("button");
+    b.type = "button"; b.dataset.k = s.key;
+    var cls = s.st === "boot" ? " boot" : (Number(s.st) < 400 ? " good" : "");
+    b.innerHTML = '<span class="st' + cls + '">' + (s.st === "boot" ? "⏻" : s.st) + "</span>" + esc(s.label) + ' <span class="nm">' + esc(s.nm) + "</span>";
+    b.addEventListener("click", function () { loadScenario(s.key); });
+    box.appendChild(b);
+  });
+  buildLanes();
+  document.getElementById("seqrows").addEventListener("click", function (e) {
+    var r = e.target.closest(".row");
+    if (r) { stop(); go(Number(r.dataset.i)); }
+  });
+  document.getElementById("bSeq").addEventListener("click", function () {
+    var body = document.getElementById("seqbody");
+    var full = body.classList.toggle("full");
+    this.textContent = full ? "צמצם את הדיאגרמה" : "הצג את כל הדיאגרמה";
+    this.setAttribute("aria-pressed", full ? "true" : "false");
+  });
+  document.getElementById("bStep").addEventListener("click", function () { stop(); next(); });
+  document.getElementById("bBack").addEventListener("click", function () { stop(); back(); });
+  document.getElementById("bRestart").addEventListener("click", function () { stop(); go(0); });
+  document.getElementById("bPlay").addEventListener("click", function () { if (playing) stop(); else play(); });
+  document.getElementById("speed").addEventListener("change", function () { if (playing) play(); });
+  document.addEventListener("keydown", function (e) {
+    var tag = (e.target && e.target.tagName) || "";
+    if (tag === "SELECT" || tag === "INPUT") return;
+    if (e.key === "F10" || e.key === "ArrowDown") { e.preventDefault(); stop(); next(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); stop(); back(); }
+    else if (e.key === " " && tag !== "BUTTON") { e.preventDefault(); if (playing) stop(); else play(); }
+    else if (e.key === "Home") { e.preventDefault(); stop(); go(0); }
+  });
+  window.addEventListener("hashchange", function () {
+    var h = location.hash.slice(1);
+    if (h !== scen && SCEN.some(function (s) { return s.key === h; })) loadScenario(h);
+  });
+  var start = location.hash.slice(1);
+  loadScenario(SCEN.some(function (s) { return s.key === start; }) ? start : "emitters");
+})();
+</script>
+</body>
+</html>
