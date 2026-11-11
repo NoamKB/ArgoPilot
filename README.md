@@ -14,3 +14,7 @@ uv run uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 Open http://127.0.0.1:8000/health. A running service returns `{"status": "ok"}`.
+
+## Presentations
+
+Assignment presentations live in [`docs/presentations/`](docs/presentations/): the slides (English, with Hebrew speaker notes) and a Hebrew presenter guide for each assignment, starting with P1.
