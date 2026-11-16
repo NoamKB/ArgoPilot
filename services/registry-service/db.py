@@ -64,6 +64,8 @@ def open_sqlite(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+# Every engine uses hide_parameters=True: database errors are logged, and their
+# bound values (farm and plot names) are user data that does not belong in logs.
 _engines: dict[str, Engine] = {}
 _engines_lock = threading.Lock()
 
@@ -90,10 +92,11 @@ def _create_engine(url: str) -> Engine:
             "sqlite://",
             creator=functools.partial(open_sqlite, db_path),
             poolclass=NullPool,
+            hide_parameters=True,
         )
     if backend == "postgresql":
         # pre_ping replaces pooled connections that the server has closed.
-        return create_engine(url, pool_pre_ping=True)
+        return create_engine(url, pool_pre_ping=True, hide_parameters=True)
     raise ValueError(f"Unsupported DATABASE_URL backend: {backend}")
 
 

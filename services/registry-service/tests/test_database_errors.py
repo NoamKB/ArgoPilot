@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from conftest import assert_unavailable, seed_database
-from db import is_postgres_unavailable, is_unavailable, violated_constraint
+from db import get_database_url, get_engine, is_postgres_unavailable, is_unavailable, violated_constraint
 from main import app
 from repositories import catalogues as catalogue_repository
 
@@ -151,3 +151,19 @@ def test_violated_constraint(orig, expected):
 def test_unreachable_postgres_returns_503(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@127.0.0.1:1/db")  # nothing listens on port 1
     assert_unavailable(TestClient(app).get("/v1/crops"))  # its own client: no test database is created
+
+
+def test_unavailable_log_hides_sql_parameter_values(client, monkeypatch, caplog):
+    from test_transactions import unavailable_driver_error
+
+    engine = get_engine(get_database_url())  # the same cached engine the app uses
+
+    def failing_execute(cursor, statement, parameters, context=None):
+        raise unavailable_driver_error()
+
+    monkeypatch.setattr(engine.dialect, "do_execute", failing_execute)
+
+    assert_unavailable(client.post("/v1/farms", json={"name": "Secret farm 7c1"}))
+    assert "Database unavailable" in caplog.text
+    assert "INSERT INTO farms" in caplog.text  # the SQL text stays, for debugging
+    assert "Secret farm 7c1" not in caplog.text  # the user's value does not
