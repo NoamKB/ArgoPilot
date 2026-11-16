@@ -8,18 +8,20 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from dotenv import dotenv_values
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.pool import NullPool
 
-from db import dispose_engines, get_engine
+from db import ENV_FILE, dispose_engines, get_engine
 from main import app
 from scripts.setup_postgres import create_schema, insert_catalogues, insert_demo_data
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 SEED_SCRIPT = SERVICE_DIR / "seed_registry.sh"
 
-# Read after importing main, so a TEST_DATABASE_URL loaded from .env is seen too.
+# pytest_sessionstart stops the run if .env defines TEST_DATABASE_URL, so this value
+# always comes from the shell, even though importing db has loaded .env.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 BACKEND = "postgresql" if TEST_DATABASE_URL else "sqlite"
 TEST_DATABASE_PREFIX = "agropilot_test_"
@@ -35,8 +37,17 @@ def assert_unavailable(response) -> None:
     assert response.json() == {"detail": "Database unavailable"}
 
 
+def defines_test_database_url(env_file: Path) -> bool:
+    """True if this .env file sets TEST_DATABASE_URL, which belongs in the shell only."""
+    return "TEST_DATABASE_URL" in dotenv_values(env_file)
+
+
 def pytest_sessionstart(session):
-    """Refuse to create and drop test databases anywhere but this machine."""
+    """Stop the run before any test if the PostgreSQL test settings are unsafe."""
+    # From .env, it would silently switch every test run to PostgreSQL.
+    if defines_test_database_url(ENV_FILE):
+        pytest.exit("Remove TEST_DATABASE_URL from .env; set it in the shell for one run.", returncode=2)
+    # Only on this machine: the fixtures create and drop databases.
     if TEST_DATABASE_URL is None:
         return
     url = make_url(TEST_DATABASE_URL)

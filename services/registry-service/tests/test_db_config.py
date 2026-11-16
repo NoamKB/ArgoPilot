@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import make_url
 from sqlalchemy.pool import NullPool, QueuePool
 
+from conftest import defines_test_database_url
 from db import (
     DEFAULT_DATABASE_URL,
     SERVICE_DIR,
@@ -134,3 +135,16 @@ def test_unencoded_at_in_password_is_rejected_without_echoing_it():
         get_engine("postgresql+psycopg://app:p@ss@db.example.com/prod")
     assert "%40" in str(error.value)
     assert "ss@db" not in str(error.value)
+
+
+def test_env_file_with_test_database_url_is_detected(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("TEST_DATABASE_URL=postgresql+psycopg://u:p@127.0.0.1:5435/postgres\n")
+    assert defines_test_database_url(env_file) is True
+
+
+def test_env_file_without_test_database_url_is_accepted(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=sqlite:////tmp/registry.db\n")
+    assert defines_test_database_url(env_file) is False
+    assert defines_test_database_url(tmp_path / "missing.env") is False
