@@ -1,4 +1,8 @@
-from scripts.measure_p95 import ENDPOINTS, TARGET_P95_MS, benchmark_passed, p95
+from pathlib import Path
+
+from sqlalchemy import make_url
+
+from scripts.measure_p95 import ENDPOINTS, TARGET_P95_MS, benchmark_database, benchmark_passed, p95
 
 FAST_MS = 10.0
 SLOW_MS = 200.0
@@ -36,3 +40,16 @@ def test_non_200_response_fails():
     path, _, latency = results[0]
     results[0] = (path, 500, latency)
     assert not benchmark_passed(results)
+
+
+def test_default_benchmark_database_is_a_seeded_temporary_sqlite_file():
+    with benchmark_database(None) as url:
+        path = Path(make_url(url).database)
+        assert url.startswith("sqlite:///") and path.exists()
+    assert not path.exists()
+
+
+def test_given_database_url_is_used_unchanged():
+    given = "postgresql+psycopg://user:pw@127.0.0.1:5435/agropilot_bench"
+    with benchmark_database(given) as url:
+        assert url == given

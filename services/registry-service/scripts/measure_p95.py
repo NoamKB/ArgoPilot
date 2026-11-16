@@ -1,6 +1,6 @@
 """NFR-1.1 benchmark: p95 latency of successful GET requests at a fixed request rate.
 
-Seeds a temporary database, starts uvicorn against it, sends requests on a fixed
+Seeds a temporary SQLite database (or uses --database-url as it is), starts uvicorn against it, sends requests on a fixed
 schedule (open loop), and reports p95 per endpoint and overall. Latency is measured
 from each request's scheduled send time, so a slow server cannot hide its delay.
 Exits with status 1 if any response is not 200, or if the overall p95 or any
@@ -18,8 +18,12 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
+
+from sqlalchemy import make_url
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 TARGET_P95_MS = 100
@@ -104,20 +108,36 @@ def run_benchmark(base_url: str, rate: float, duration: float) -> list[tuple[str
     return results
 
 
+@contextmanager
+def benchmark_database(database_url: str | None) -> Iterator[str]:
+    """Yield the URL to benchmark: the given one unchanged, or a temporary seeded SQLite file."""
+    if database_url is not None:
+        yield database_url  # benchmarked as it is; the script only sends GET requests
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "registry.db"
+        subprocess.run(["bash", "seed_registry.sh", str(db_path)], cwd=SERVICE_DIR, check=True, capture_output=True)
+        yield f"sqlite:///{db_path}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--rate", type=float, default=10, help="requests per second (default 10)")
     parser.add_argument("--duration", type=float, default=120, help="seconds (default 120)")
+    parser.add_argument(
+        "--database-url",
+        help="benchmark an existing database that already has the demo data (default: a temporary seeded SQLite file)",
+    )
     args = parser.parse_args()
 
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = Path(tmp) / "registry.db"
-        subprocess.run(["bash", "seed_registry.sh", str(db_path)], cwd=SERVICE_DIR, check=True, capture_output=True)
+    with benchmark_database(args.database_url) as database_url:
+        print(f"Target: {make_url(database_url).render_as_string(hide_password=True)}")
         port = free_port()
         server = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
             cwd=SERVICE_DIR,
-            env={**os.environ, "DATABASE_URL": f"sqlite:///{db_path}"},
+            # Passed explicitly: the environment wins over .env, so .env is never used by accident.
+            env={**os.environ, "DATABASE_URL": database_url},
         )
         base_url = f"http://127.0.0.1:{port}"
         try:
