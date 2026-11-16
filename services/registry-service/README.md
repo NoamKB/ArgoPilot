@@ -2,7 +2,7 @@
 
 ## Overview
 
-The AgroPilot registry service stores farms and their plots and serves read-only catalogues of crops, soils, and drip emitters. It is a FastAPI application on top of one SQLite file, `registry.db`.
+The AgroPilot registry service stores farms and their plots and serves read-only catalogues of crops, soils, and drip emitters. It is a FastAPI application that stores its data in the SQLite file `registry.db` locally and in tests, or in PostgreSQL in production, selected by `DATABASE_URL`.
 
 | Resource | Routes |
 | --- | --- |
@@ -51,16 +51,42 @@ Request bodies must be sent with `Content-Type: application/json`. Without it, t
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `REGISTRY_DB_PATH` | `registry.db` in this directory | Path of the SQLite file. A relative path is resolved from the current directory. |
+| `DATABASE_URL` | `sqlite:///<this directory>/registry.db` | The database. Unset or empty means the default SQLite file. |
 
-The service never creates the database file. If the file is missing or unreadable, data routes return `503` with a `Retry-After` header and `/health` still returns `200`.
+Two URL forms are supported:
 
-To run against a separate database, seed it and point the service at it:
+```bash
+DATABASE_URL=sqlite:////absolute/path/to/registry.db             # SQLite; a relative path resolves from the current directory
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname  # PostgreSQL through psycopg 3
+```
+
+- Put `DATABASE_URL` in `.env` in this directory. `.env` is git-ignored; `.env.example` shows the format and holds no credentials.
+- A variable already set in the environment wins over `.env`.
+- Keep `+psycopg` in PostgreSQL URLs. With a plain `postgresql://`, SQLAlchemy picks the driver by its own version (psycopg2 in 2.0, psycopg 3 in 2.1); this service installs psycopg 3 only.
+- Percent-encode special characters in a password, for example `@` as `%40` and `/` as `%2F`.
+
+The service never creates the database or its tables. If the database is missing or unreachable, data routes return `503` with a `Retry-After` header and `/health` still returns `200`.
+
+To run against a separate SQLite file, seed it and point the service at it:
 
 ```bash
 bash seed_registry.sh /tmp/registry-dev.db
-REGISTRY_DB_PATH=/tmp/registry-dev.db uv run uvicorn main:app --host 127.0.0.1 --port 8001
+DATABASE_URL=sqlite:////tmp/registry-dev.db uv run uvicorn main:app --host 127.0.0.1 --port 8001
 ```
+
+## PostgreSQL setup
+
+Create the tables and catalogues in an existing, empty PostgreSQL database:
+
+```bash
+DATABASE_URL='postgresql+psycopg://user:password@host:5432/dbname' uv run python -m scripts.setup_postgres
+```
+
+- **Initial schema setup only, not a migration tool.** An existing table is left unchanged, even if its definition differs, and an existing catalogue row is not updated.
+- Safe to run again: it uses `CREATE TABLE IF NOT EXISTS` and `INSERT ... ON CONFLICT DO NOTHING`, and never drops or deletes anything.
+- It refuses a SQLite URL and prints the target with the password hidden before changing anything.
+- `--demo` also inserts the 2 demo farms and 4 demo plots. **Never use `--demo` on a production database.**
+- Run it with `python -m` from this directory, so that it can import `db`.
 
 ## Automated tests
 
@@ -68,7 +94,21 @@ REGISTRY_DB_PATH=/tmp/registry-dev.db uv run uvicorn main:app --host 127.0.0.1 -
 uv run pytest
 ```
 
-Each test seeds its own temporary database through `REGISTRY_DB_PATH`, so tests never read or change `registry.db`. Some tests start a real uvicorn process to check behavior under parallel requests.
+Every test points `DATABASE_URL` at its own temporary SQLite file, so tests never read or change `registry.db` or use a `DATABASE_URL` from `.env`. Some tests start a real uvicorn process to check behavior under parallel requests.
+
+**On PostgreSQL**, with Docker running:
+
+```bash
+docker run --rm -d --name agropilot-test-pg -e POSTGRES_PASSWORD=agropilot-local-test -p 127.0.0.1:5435:5432 postgres:17
+TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/postgres' uv run pytest
+docker stop agropilot-test-pg
+```
+
+- The same suite runs on PostgreSQL. Each test that needs a database gets a fresh `agropilot_test_<random>` database, dropped afterwards. Tests that only make sense on one backend are skipped on the other.
+- The run stops unless `TEST_DATABASE_URL` points to `localhost` or `127.0.0.1`.
+- `-p 127.0.0.1:5435:5432` publishes the port only on this machine. Port 5435 avoids other local PostgreSQL servers; if it is busy, use another free port in both commands.
+- `agropilot-local-test` is a fixed throwaway password for this disposable, localhost-only container. Never reuse it for production, and do not treat it as a real secret.
+- Set `TEST_DATABASE_URL` in the shell for one run. Never put it in `.env`: that would switch every test run to PostgreSQL.
 
 ## Performance & load testing
 
@@ -78,7 +118,17 @@ Each test seeds its own temporary database through `REGISTRY_DB_PATH`, so tests 
 uv run python scripts/measure_p95.py
 ```
 
-The script seeds a temporary database, starts its own uvicorn server, and sends 1,200 requests at a fixed 10 requests per second for 120 seconds across 11 successful `GET` routes. It prints p50, p95, and max latency per route and overall, and ends with `PASS` or `FAIL`. Any non-`200` response is a failure. Use `--duration 10` for a quick check.
+The script seeds a temporary SQLite database, starts its own uvicorn server, and sends 1,200 requests at a fixed 10 requests per second for 120 seconds across 11 successful `GET` routes. It prints p50, p95, and max latency per route and overall, and ends with `PASS` or `FAIL`. Any non-`200` response is a failure. Use `--duration 10` for a quick check.
+
+**On PostgreSQL**, benchmark an existing database that already has the demo data. With the test container above running:
+
+```bash
+docker exec agropilot-test-pg createdb -U postgres agropilot_bench
+DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/agropilot_bench' uv run python -m scripts.setup_postgres --demo
+uv run python scripts/measure_p95.py --database-url 'postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/agropilot_bench'
+```
+
+The script only sends `GET` requests and never writes to that database. On macOS, Docker Desktop runs PostgreSQL inside a virtual machine, so this number reflects the local setup, not production.
 
 **Optional stress test** with [oha](https://github.com/hatoo/oha), against a running server:
 
@@ -89,3 +139,27 @@ oha -z 30s -c 50 --no-tui http://127.0.0.1:8000/v1/plots
 The benchmark measures latency at the fixed load the requirement names. The stress test sends as many requests as 50 concurrent connections can, to find limits and errors under overload. Its numbers are not the NFR-1.1 result.
 
 While either runs, the uvicorn terminal shows errors, and macOS Activity Monitor shows the CPU and memory of the `python` process.
+
+## Manual smoke test on PostgreSQL
+
+About 2 minutes, with Docker running. It uses its own container and port, so it does not affect the test container.
+
+1. Start PostgreSQL:
+   ```bash
+   docker run -d --name agropilot-smoke-pg -e POSTGRES_PASSWORD=agropilot-local-test -p 127.0.0.1:5434:5432 postgres:17
+   ```
+2. Point the app at it: `cp .env.example .env`, then add this line to `.env`:
+   ```bash
+   DATABASE_URL=postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5434/postgres
+   ```
+3. Create the schema and demo data: `uv run python -m scripts.setup_postgres --demo`
+4. Start the app: `uv run uvicorn main:app --host 127.0.0.1 --port 8000`. In a second terminal:
+   - `curl -s http://127.0.0.1:8000/v1/farms` lists the 2 demo farms.
+   - Creating a plot with an existing name returns `409`:
+     ```bash
+     curl -s -i -X POST http://127.0.0.1:8000/v1/plots -H "Content-Type: application/json" -d '{"farm_id": "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001", "name": "North block", "area_m2": 1000, "crop_id": "tomato", "planting_date": "2026-03-01", "soil_id": "loam", "row_spacing_m": 1.5, "emitter_spacing_m": 0.4, "emitter_id": "dripnet-pc-1.0", "lat": 31.25, "lon": 34.79}'
+     ```
+   - Deleting a farm that has plots returns `409`: `curl -s -i -X DELETE http://127.0.0.1:8000/v1/farms/b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001`
+5. `docker stop agropilot-smoke-pg`. Then `curl -s -i http://127.0.0.1:8000/v1/farms` returns `503` with `retry-after: 5`.
+6. `docker start agropilot-smoke-pg`, wait a few seconds, and repeat the request: it returns `200` without restarting the app.
+7. Clean up: stop the app, run `docker rm -f agropilot-smoke-pg`, and remove the `DATABASE_URL` line from `.env` so the app uses `registry.db` again.
