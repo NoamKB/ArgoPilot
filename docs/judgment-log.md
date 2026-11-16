@@ -100,3 +100,14 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** Reject NUL in all string inputs that reach the database with a 422 validation error on both databases. This makes both backends consistent, and deliberately changes legacy SQLite behavior for NUL input, the one intended exception to "existing endpoints keep behaving exactly the same".
 - **Reasoning:** PostgreSQL's data constraints are preserved instead of SQLite's permissive behavior, for PostgreSQL compatibility and predictable API behavior.
 - **Tradeoffs:** On SQLite, NUL input changes from 201, 422 "Unknown crop", or 404 to a 422 validation error.
+
+## JL-010: Keep the empty-DATABASE_URL fallback; log the selected database at startup
+
+- **Date:** 2026-11-17
+- **Assignment:** P1 — Registry Service API
+- **Context:** An exported empty `DATABASE_URL` (e.g. docker-compose `${DATABASE_URL}` with the host variable unset) overrides `.env`, and the approved rule then selects the default SQLite file without any message.
+- **AI recommendation:** Keep the rule; optionally log the selected database at startup.
+- **Alternatives:** Treat an empty value as unset so `.env` applies, rejected as a hidden exception to "the environment wins" that only fixes the `.env` case; an `APP_ENV=production` setting that forbids the SQLite fallback, rejected as a new concept outside the assignment.
+- **Decision:** Keep the precedence and fallback rule. At startup, log the backend and target through uvicorn's logger, with the password and query string hidden.
+- **Reasoning:** One simple, predictable rule, made visible to the operator without changing behavior.
+- **Tradeoffs:** The log only reports a misconfiguration and doesn't prevent it; someone has to read it. A startup check that fails on an invalid URL is deferred.
