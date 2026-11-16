@@ -9,7 +9,7 @@ from typing import Annotated
 import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends
-from sqlalchemy import Connection, Engine, create_engine, make_url
+from sqlalchemy import URL, Connection, Engine, create_engine, make_url
 from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.pool import NullPool
@@ -30,6 +30,16 @@ load_env_file()
 
 def get_database_url() -> str:
     return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+
+
+def parse_database_url(url: str) -> URL:
+    """Parse a database URL, refusing a password that contains an unencoded '@'."""
+    parsed = make_url(url)
+    # An unencoded '@' moves the rest of the password into the host, where it would
+    # appear in connection errors, logs, and printed targets.
+    if "@" in (parsed.host or ""):
+        raise ValueError("DATABASE_URL: percent-encode '@' in the password as %40")
+    return parsed
 
 
 def open_sqlite(db_path: Path) -> sqlite3.Connection:
@@ -59,11 +69,12 @@ def get_engine(url: str) -> Engine:
 
 
 def _create_engine(url: str) -> Engine:
-    backend = make_url(url).get_backend_name()
+    parsed = parse_database_url(url)
+    backend = parsed.get_backend_name()
     if backend == "sqlite":
         # Resolved once, here: the engine stays on this file even if DATABASE_URL
         # or the current directory changes later.
-        db_path = Path(make_url(url).database).resolve()
+        db_path = Path(parsed.database).resolve()
         # creator= keeps open_sqlite's mode=rw, so a missing file stays a 503.
         # NullPool: a fresh connection per request, as before (JL-002).
         return create_engine(

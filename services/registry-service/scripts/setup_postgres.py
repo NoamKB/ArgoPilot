@@ -11,9 +11,9 @@ Run from services/registry-service, with DATABASE_URL set in the environment or 
 import argparse
 import sys
 
-from sqlalchemy import Connection, make_url, text
+from sqlalchemy import Connection, text
 
-from db import get_database_url, get_engine
+from db import get_database_url, get_engine, parse_database_url
 
 DEMO_WARNING = "WARNING: inserting demo farms and plots. Never use --demo on a production database."
 
@@ -164,11 +164,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     url = get_database_url()
-    if make_url(url).get_backend_name() != "postgresql":
+    try:
+        parsed = parse_database_url(url)
+    except ValueError as error:
+        print(error, file=sys.stderr)
+        return 1
+    if parsed.get_backend_name() != "postgresql":
         print("setup_postgres only works with a PostgreSQL DATABASE_URL.", file=sys.stderr)
         return 1
 
-    print(f"Target: {make_url(url).render_as_string(hide_password=True)}")
+    print(f"Target: {parsed.render_as_string(hide_password=True)}")
     if args.demo:
         print(DEMO_WARNING)
 

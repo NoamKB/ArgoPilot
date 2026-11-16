@@ -125,3 +125,12 @@ def test_empty_database_url_uses_default(monkeypatch):
 def test_autouse_fixture_points_at_temporary_database(tmp_path):
     # Guards against any test reaching the real registry.db or a DATABASE_URL from .env.
     assert get_database_url() == f"sqlite:///{tmp_path / 'registry.db'}"
+
+
+def test_unencoded_at_in_password_is_rejected_without_echoing_it():
+    # "p@ss" unencoded: make_url would read password "p" and host "ss@db.example.com",
+    # and the host (part of the password) would then appear in error logs.
+    with pytest.raises(ValueError) as error:
+        get_engine("postgresql+psycopg://app:p@ss@db.example.com/prod")
+    assert "%40" in str(error.value)
+    assert "ss@db" not in str(error.value)
