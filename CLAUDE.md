@@ -21,17 +21,20 @@ curl http://127.0.0.1:8000/health                      # expect {"status":"ok"}
 uv run pytest                                          # run all tests
 uv run pytest tests/test_plots.py::test_patch_with_empty_body_changes_nothing   # run one test
 uv run python scripts/measure_p95.py                   # NFR-1.1 benchmark, 120 s at 10 rps
+uv run python scripts/measure_p95.py --database-url URL   # benchmark an existing database that has the demo data
+uv run python -m scripts.setup_postgres [--demo]       # PostgreSQL schema + catalogues (initial setup only; --demo never on production)
+TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/postgres' uv run pytest   # suite on PostgreSQL; container command in the service README
 uv lock --check                                        # verify uv.lock matches pyproject.toml
 ```
 
 To debug, use the `registry-service` config in `.vscode/launch.json`. It runs the same uvicorn command under debugpy with the service's `.venv` interpreter, so run `uv sync` first.
 
-Tests use pytest and `httpx2` (Starlette's `TestClient` imports it) from the `dev` dependency group. Each test seeds a temporary database through `REGISTRY_DB_PATH`, which needs the `sqlite3` CLI. No linter, formatter, or type checker is configured; the ruff and mypy entries in `.gitignore` are placeholders.
+Tests use pytest and `httpx2` (Starlette's `TestClient` imports it) from the `dev` dependency group. An autouse fixture points `DATABASE_URL` at a temporary SQLite file for every test; seeding needs the `sqlite3` CLI. With `TEST_DATABASE_URL` (localhost only; set in the shell, and pytest stops if `.env` defines it), tests that need a database get a fresh PostgreSQL database each; `sqlite_only` and `postgres_only` markers skip tests for the other backend. No linter, formatter, or type checker is configured; the ruff and mypy entries in `.gitignore` are placeholders.
 
 ## Architecture
 
 - **Services:** each service lives in `services/<name>/` and is self-contained, with its own `pyproject.toml`, `uv.lock`, and `.venv`. There is no uv workspace and no shared code between services.
-- **`registry-service`:** a FastAPI app on one SQLite file. A request goes `routers/` (HTTP: input, status codes, order of checks) → Pydantic models in `schemas.py` → `repositories/` (SQL only, return data or `None`) → SQLite. There is no service layer and no ORM. `db.py` opens one connection per request (`mode=rw`, `check_same_thread=False`, `PRAGMA foreign_keys = ON`); endpoints are plain `def` because `sqlite3` blocks. Errors use FastAPI's defaults; the one custom handler in `main.py` turns SQLite outage errors into `503` with `Retry-After`, classified by `sqlite_errorname` so SQL bugs stay `500`. There is no auth.
+- **`registry-service`:** a FastAPI app on SQLite (`registry.db`, local and tests) or PostgreSQL (production), selected by `DATABASE_URL` from the environment or `.env`. A request goes `routers/` (HTTP: input, status codes, order of checks) → Pydantic models in `schemas.py` → `repositories/` (handwritten SQL with SQLAlchemy Core `text()`, return data or `None`) → database. There is no service layer and no ORM. `db.py` keeps one engine per URL (SQLite: `NullPool`, bound to its file, `mode=rw`, foreign keys on; PostgreSQL: psycopg 3, `pool_pre_ping`, 5 s `connect_timeout`; both with `hide_parameters=True`). At startup `main.py` logs the selected database with the password hidden. `get_db` opens one transaction per request with `engine.begin()`, and `Depends(get_db, scope="function")` commits before the response is sent; repositories and routers never commit. Endpoints are plain `def` because the drivers block. Errors use FastAPI's defaults; the one custom handler in `main.py` turns database-unavailable errors into `503` with `Retry-After`, classified by `sqlite_errorname` or PostgreSQL SQLSTATE so SQL bugs stay `500`. String inputs reject NUL characters (PostgreSQL cannot store them). There is no auth.
 - **Imports depend on the working directory:** `[tool.uv] package = false` means the service is not an installed package, so `main:app` only resolves when uvicorn runs from `services/registry-service` (the launch config sets `cwd` for this).
 
 ## Assignment

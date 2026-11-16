@@ -1,10 +1,11 @@
-import sqlite3
 from typing import NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import Connection
+from sqlalchemy.exc import IntegrityError
 
-from db import DbConnection
+from db import DbConnection, violated_constraint
 from repositories import catalogues as catalogue_repository
 from repositories import farms as farm_repository
 from repositories import plots as plot_repository
@@ -13,14 +14,14 @@ from schemas import Plot, PlotCreate, PlotUpdate
 router = APIRouter(prefix="/v1/plots", tags=["plots"])
 
 
-def get_plot_or_404(conn: sqlite3.Connection, plot_id: UUID) -> dict:
+def get_plot_or_404(conn: Connection, plot_id: UUID) -> dict:
     plot = plot_repository.get_plot(conn, str(plot_id))
     if plot is None:
         raise HTTPException(status_code=404, detail="Plot not found")
     return plot
 
 
-def check_references(conn: sqlite3.Connection, fields: dict) -> None:
+def check_references(conn: Connection, fields: dict) -> None:
     if "farm_id" in fields and farm_repository.get_farm(conn, fields["farm_id"]) is None:
         raise HTTPException(status_code=404, detail="Farm not found")
     if "crop_id" in fields and catalogue_repository.get_crop(conn, fields["crop_id"]) is None:
@@ -31,10 +32,11 @@ def check_references(conn: sqlite3.Connection, fields: dict) -> None:
         raise HTTPException(status_code=422, detail="Unknown emitter")
 
 
-def raise_for_integrity_error(exc: sqlite3.IntegrityError) -> NoReturn:
-    if exc.sqlite_errorname == "SQLITE_CONSTRAINT_UNIQUE":
+def raise_for_integrity_error(exc: IntegrityError) -> NoReturn:
+    constraint = violated_constraint(exc)
+    if constraint == "unique":
         raise HTTPException(status_code=409, detail="Plot name already exists on this farm") from exc
-    if exc.sqlite_errorname == "SQLITE_CONSTRAINT_FOREIGNKEY":
+    if constraint == "foreign_key":
         # The farm passed check_references but was deleted by a concurrent request.
         raise HTTPException(status_code=404, detail="Farm not found") from exc
     raise exc
@@ -46,7 +48,7 @@ def create_plot(body: PlotCreate, conn: DbConnection):
     check_references(conn, fields)
     try:
         return plot_repository.create_plot(conn, fields)
-    except sqlite3.IntegrityError as exc:
+    except IntegrityError as exc:
         raise_for_integrity_error(exc)
 
 
@@ -68,7 +70,7 @@ def update_plot(plot_id: UUID, body: PlotUpdate, conn: DbConnection):
         check_references(conn, changes)
         try:
             updated = plot_repository.update_plot(conn, str(plot_id), changes)
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise_for_integrity_error(exc)
         if not updated:
             raise HTTPException(status_code=404, detail="Plot not found")

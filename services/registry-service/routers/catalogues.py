@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from db import DbConnection
 from repositories import catalogues as catalogue_repository
-from schemas import Crop, Emitter, Soil
+from schemas import Crop, Emitter, NoNulStr, Soil
 
 router = APIRouter(prefix="/v1", tags=["catalogues"])
 
@@ -13,7 +13,7 @@ def list_crops(conn: DbConnection):
 
 
 @router.get("/crops/{crop_id}", response_model=Crop)
-def get_crop(crop_id: str, conn: DbConnection):
+def get_crop(crop_id: NoNulStr, conn: DbConnection):
     crop = catalogue_repository.get_crop(conn, crop_id)
     if crop is None:
         raise HTTPException(status_code=404, detail="Crop not found")
@@ -26,7 +26,7 @@ def list_soils(conn: DbConnection):
 
 
 @router.get("/soils/{soil_id}", response_model=Soil)
-def get_soil(soil_id: str, conn: DbConnection):
+def get_soil(soil_id: NoNulStr, conn: DbConnection):
     soil = catalogue_repository.get_soil(conn, soil_id)
     if soil is None:
         raise HTTPException(status_code=404, detail="Soil not found")
@@ -39,7 +39,7 @@ def list_emitters(conn: DbConnection):
 
 
 @router.get("/emitters/{emitter_id}", response_model=Emitter)
-def get_emitter(emitter_id: str, conn: DbConnection):
+def get_emitter(emitter_id: NoNulStr, conn: DbConnection):
     emitter = catalogue_repository.get_emitter(conn, emitter_id)
     if emitter is None:
         raise HTTPException(status_code=404, detail="Emitter not found")

@@ -274,3 +274,11 @@ def test_farm_can_be_deleted_after_its_plots(client):
         assert client.delete(f"/v1/plots/{plot['id']}").status_code == 204
 
     assert client.delete(f"/v1/farms/{DEMO_FARM_ID}").status_code == 204
+
+
+def test_high_precision_coordinates_round_trip(client):
+    # Passes on SQLite from the start; catches 4-byte REAL rounding on PostgreSQL.
+    created = client.post("/v1/plots", json={**SPEC_EXAMPLE, "name": "Precise block", "lat": 31.2512345, "lon": 34.7912345678})
+    assert created.status_code == 201
+    stored = client.get(f"/v1/plots/{created.json()['id']}").json()
+    assert (stored["lat"], stored["lon"]) == (31.2512345, 34.7912345678)
