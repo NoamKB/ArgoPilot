@@ -32,23 +32,39 @@ def get_database_url() -> str:
     return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
 
 
+# Fixed text: an error about a bad URL must never repeat the URL, which may hold a password.
+INVALID_URL_MESSAGE = (
+    "DATABASE_URL could not be parsed. Percent-encode special characters in the password, e.g. @ as %40."
+)
+
+
 def parse_database_url(url: str) -> URL:
-    """Parse a database URL, refusing a password that contains an unencoded '@'."""
-    parsed = make_url(url)
-    # An unencoded '@' moves the rest of the password into the host, where it would
-    # appear in connection errors, logs, and printed targets.
-    if "@" in (parsed.host or ""):
-        raise ValueError("DATABASE_URL: percent-encode '@' in the password as %40")
-    return parsed
+    """Parse a database URL, refusing one that would put part of the password elsewhere."""
+    # A server URL has at most one '@', between the credentials and the host. A second one
+    # means an unencoded '@' in the password: the rest of the password would land in the
+    # host, port, or database name, which appear in errors, logs, and printed targets.
+    if not url.startswith("sqlite") and url.count("@") > 1:
+        raise ValueError(INVALID_URL_MESSAGE)
+    try:
+        return make_url(url)
+    except (ValueError, ArgumentError):
+        # from None: the original error, which can quote part of the URL, is not attached.
+        raise ValueError(INVALID_URL_MESSAGE) from None
+
+
+def display_url(parsed: URL) -> str:
+    """The URL for logs and printed targets: password hidden, query string left out."""
+    # The query string can hold secrets too, such as sslpassword.
+    return parsed.set(query={}).render_as_string(hide_password=True)
 
 
 def describe_database_url(url: str) -> str:
-    """Backend and target for logs, with the password hidden. Never echoes an invalid URL."""
+    """Backend and target for the startup log. Never echoes an invalid URL."""
     try:
         parsed = parse_database_url(url)
-    except (ValueError, ArgumentError) as error:
-        return f"invalid DATABASE_URL ({error})"
-    return f"{parsed.get_backend_name()}, {parsed.render_as_string(hide_password=True)}"
+    except ValueError:
+        return f"invalid. {INVALID_URL_MESSAGE}"
+    return f"{parsed.get_backend_name()}, {display_url(parsed)}"
 
 
 def open_sqlite(db_path: Path) -> sqlite3.Connection:

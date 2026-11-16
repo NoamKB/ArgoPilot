@@ -8,6 +8,7 @@ from sqlalchemy.pool import NullPool, QueuePool
 from conftest import defines_test_database_url
 from db import (
     DEFAULT_DATABASE_URL,
+    describe_database_url,
     SERVICE_DIR,
     dispose_engines,
     get_database_url,
@@ -34,6 +35,13 @@ def unset_database_url(monkeypatch):
 def make_sqlite_file(path: Path) -> Path:
     sqlite3.connect(path).close()
     return path
+
+
+def printed_chained_error(error: BaseException) -> BaseException | None:
+    """The earlier error Python would print under this one in a traceback, if any."""
+    if error.__cause__ is not None:
+        return error.__cause__
+    return None if error.__suppress_context__ else error.__context__
 
 
 def connected_file(engine) -> str:
@@ -128,13 +136,33 @@ def test_autouse_fixture_points_at_temporary_database(tmp_path):
     assert get_database_url() == f"sqlite:///{tmp_path / 'registry.db'}"
 
 
-def test_unencoded_at_in_password_is_rejected_without_echoing_it():
-    # "p@ss" unencoded: make_url would read password "p" and host "ss@db.example.com",
-    # and the host (part of the password) would then appear in error logs.
+@pytest.mark.parametrize(
+    ("url", "password_part"),
+    [
+        ("postgresql+psycopg://app:p@ss@db.example.com/prod", "ss@db"),  # rest of password in the host
+        ("postgresql+psycopg://app:p@ss/xyzzy@db.example.com/prod", "xyzzy"),  # ... in the database name
+        ("postgresql+psycopg://app:p@ss:99xyzzy@db.example.com/prod", "99xyzzy"),  # ... in the port
+    ],
+)
+def test_unencoded_at_in_password_is_rejected_without_echoing_it(url, password_part):
+    # An unencoded '@' ends the password early; the rest would appear in errors and logs.
     with pytest.raises(ValueError) as error:
-        get_engine("postgresql+psycopg://app:p@ss@db.example.com/prod")
+        get_engine(url)
     assert "%40" in str(error.value)
-    assert "ss@db" not in str(error.value)
+    assert password_part not in str(error.value)
+    assert printed_chained_error(error.value) is None
+
+
+def test_unparseable_url_error_does_not_echo_it():
+    with pytest.raises(ValueError) as error:
+        get_engine("postgresql+psycopg://app:pw@db.example.com:12ab/prod")
+    assert "12ab" not in str(error.value)
+    assert printed_chained_error(error.value) is None  # the parse error quoted the port
+
+
+def test_described_url_hides_password_and_query():
+    described = describe_database_url("postgresql+psycopg://app:s3cret@db.example.com/prod?sslpassword=k3y")
+    assert described == "postgresql, postgresql+psycopg://app:***@db.example.com/prod"
 
 
 def test_env_file_with_test_database_url_is_detected(tmp_path):
