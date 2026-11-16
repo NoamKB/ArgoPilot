@@ -146,3 +146,8 @@ def integrity_error(orig):
 )
 def test_violated_constraint(orig, expected):
     assert violated_constraint(integrity_error(orig)) == expected
+
+
+def test_unreachable_postgres_returns_503(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pw@127.0.0.1:1/db")  # nothing listens on port 1
+    assert_unavailable(TestClient(app).get("/v1/crops"))  # its own client: no test database is created
