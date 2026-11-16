@@ -112,7 +112,14 @@ def _create_engine(url: str) -> Engine:
         )
     if backend == "postgresql":
         # pre_ping replaces pooled connections that the server has closed.
-        return create_engine(url, pool_pre_ping=True, hide_parameters=True)
+        # connect_timeout: a host that drops packets fails after 5 s (503), instead of
+        # waiting for the operating system's TCP timeout of a minute or more.
+        return create_engine(
+            url,
+            pool_pre_ping=True,
+            hide_parameters=True,
+            connect_args={"connect_timeout": 5},
+        )
     raise ValueError(f"Unsupported DATABASE_URL backend: {backend}")
 
 

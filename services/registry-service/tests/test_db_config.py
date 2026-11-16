@@ -1,7 +1,9 @@
 import sqlite3
 from pathlib import Path
 
+import psycopg
 import pytest
+import sqlalchemy.exc
 from sqlalchemy import make_url
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -176,3 +178,17 @@ def test_env_file_without_test_database_url_is_accepted(tmp_path):
     env_file.write_text("DATABASE_URL=sqlite:////tmp/registry.db\n")
     assert defines_test_database_url(env_file) is False
     assert defines_test_database_url(tmp_path / "missing.env") is False
+
+
+def test_postgres_engine_sets_a_5_second_connect_timeout(monkeypatch):
+    engine = get_engine("postgresql+psycopg://user:pw@127.0.0.1:5435/db")
+    received = {}
+
+    def fake_connect(*args, **kwargs):  # records what psycopg would receive; no server needed
+        received.update(kwargs)
+        raise psycopg.OperationalError("not connecting in this test")
+
+    monkeypatch.setattr(engine.dialect, "connect", fake_connect)
+    with pytest.raises(sqlalchemy.exc.OperationalError):
+        engine.connect()
+    assert received["connect_timeout"] == 5
