@@ -11,7 +11,15 @@ def not_in_future(value: str) -> str:
     return value
 
 
-Name = Annotated[str, Field(min_length=1)]
+def reject_nul(value: str) -> str:
+    """PostgreSQL text cannot store NUL, so reject it on both databases."""
+    if "\x00" in value:
+        raise ValueError("must not contain NUL characters")
+    return value
+
+
+NoNulStr = Annotated[str, AfterValidator(reject_nul)]
+Name = Annotated[str, Field(min_length=1), AfterValidator(reject_nul)]
 PositiveNumber = Annotated[float, Field(gt=0, strict=True, allow_inf_nan=False)]
 Latitude = Annotated[float, Field(ge=-90, le=90, strict=True, allow_inf_nan=False)]
 Longitude = Annotated[float, Field(ge=-180, le=180, strict=True, allow_inf_nan=False)]
@@ -58,12 +66,12 @@ class PlotCreate(BaseModel):
     farm_id: UUID
     name: Name
     area_m2: PositiveNumber
-    crop_id: str
+    crop_id: NoNulStr
     planting_date: PlantingDate
-    soil_id: str
+    soil_id: NoNulStr
     row_spacing_m: PositiveNumber
     emitter_spacing_m: PositiveNumber
-    emitter_id: str
+    emitter_id: NoNulStr
     lat: Latitude
     lon: Longitude
 
@@ -74,12 +82,12 @@ class PlotUpdate(BaseModel):
     farm_id: UUID = None
     name: Name = None
     area_m2: PositiveNumber = None
-    crop_id: str = None
+    crop_id: NoNulStr = None
     planting_date: PlantingDate = None
-    soil_id: str = None
+    soil_id: NoNulStr = None
     row_spacing_m: PositiveNumber = None
     emitter_spacing_m: PositiveNumber = None
-    emitter_id: str = None
+    emitter_id: NoNulStr = None
     lat: Latitude = None
     lon: Longitude = None
 
