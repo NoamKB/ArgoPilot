@@ -63,7 +63,8 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname  # PostgreSQL t
 - Put `DATABASE_URL` in `.env` in this directory. `.env` is git-ignored; `.env.example` shows the format and holds no credentials.
 - A variable already set in the environment wins over `.env`.
 - Keep `+psycopg` in PostgreSQL URLs. With a plain `postgresql://`, SQLAlchemy picks the driver by its own version (psycopg2 in 2.0, psycopg 3 in 2.1); this service installs psycopg 3 only.
-- Percent-encode special characters in a password, for example `@` as `%40` and `/` as `%2F`.
+- Percent-encode special characters in a password, for example `@` as `%40` and `/` as `%2F`. The service refuses a URL with an unencoded `@` in the password, without printing the URL.
+- At startup the service logs the database it uses, with the password hidden, for example `INFO: Database: sqlite, sqlite:////…/registry.db`.
 
 The service never creates the database or its tables. If the database is missing or unreachable, data routes return `503` with a `Retry-After` header and `/health` still returns `200`.
 
@@ -108,7 +109,7 @@ docker stop agropilot-test-pg
 - The run stops unless `TEST_DATABASE_URL` points to `localhost` or `127.0.0.1`.
 - `-p 127.0.0.1:5435:5432` publishes the port only on this machine. Port 5435 avoids other local PostgreSQL servers; if it is busy, use another free port in both commands.
 - `agropilot-local-test` is a fixed throwaway password for this disposable, localhost-only container. Never reuse it for production, and do not treat it as a real secret.
-- Set `TEST_DATABASE_URL` in the shell for one run. Never put it in `.env`: that would switch every test run to PostgreSQL.
+- Set `TEST_DATABASE_URL` in the shell for one run. If `.env` defines it, `pytest` stops before running any test.
 
 ## Performance & load testing
 

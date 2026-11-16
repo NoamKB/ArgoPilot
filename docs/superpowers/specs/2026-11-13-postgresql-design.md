@@ -1,7 +1,7 @@
 # Design: registry-service on SQLite and PostgreSQL
 
 - **Date:** 2026-11-13 (revised 2026-11-14)
-- **Status:** Approved 2026-11-16 (revision 4: SQLite engine bound to its file; scope of the commit-failure test)
+- **Status:** Approved 2026-11-16 (revision 4: SQLite engine bound to its file; scope of the commit-failure test). Revision 5 (2026-11-17) records the implementation changes; see section 15.
 - **Branch:** `feature/p1-postgresql`
 - **Service:** `services/registry-service`
 - **Decisions:** JL-004 to JL-009 in `docs/judgment-log.md`
@@ -308,8 +308,8 @@ Name = Annotated[str, Field(min_length=1), AfterValidator(reject_nul)]
 **Purpose:** initial schema setup only. It is **not a migration tool**. Its docstring, `--help` text, and the README all say so.
 
 ```bash
-uv run python scripts/setup_postgres.py          # schema + catalogues
-uv run python scripts/setup_postgres.py --demo   # also 2 demo farms + 4 demo plots (development only)
+uv run python -m scripts.setup_postgres          # schema + catalogues
+uv run python -m scripts.setup_postgres --demo   # also 2 demo farms + 4 demo plots (development only)
 ```
 
 **Behavior:**
@@ -382,7 +382,7 @@ CREATE TABLE IF NOT EXISTS plots (
 - `uv run pytest` runs on SQLite (the default).
 - With `TEST_DATABASE_URL` set to an admin URL for a local PostgreSQL 17 container, `uv run pytest` runs the same suite on PostgreSQL. The command is in section 11.
 - Tests never use a `DATABASE_URL` from `.env`: an autouse fixture always overrides it.
-- `TEST_DATABASE_URL` is set in the shell for one run and never written in `.env`. Because `db.py` loads every key from `.env`, a `TEST_DATABASE_URL` written there would silently switch the default run to PostgreSQL.
+- `TEST_DATABASE_URL` is set in the shell for one run and never written in `.env`. Because `db.py` loads every key from `.env`, a `TEST_DATABASE_URL` written there would silently switch the default run to PostgreSQL, so `pytest_sessionstart` stops the run if `.env` defines it (revision 5).
 
 ### Fixtures (`tests/conftest.py`)
 
@@ -524,12 +524,12 @@ Placeholders only:
    - "Initial schema setup only, not a migration tool."
    - A warning never to use `--demo` on production.
 3. **Running tests on PostgreSQL:**
-   1. `docker run --rm -d --name agropilot-test-pg -e POSTGRES_PASSWORD=agropilot-local-test -p 127.0.0.1:5433:5432 postgres:17`
-   2. `TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5433/postgres' uv run pytest`
+   1. `docker run --rm -d --name agropilot-test-pg -e POSTGRES_PASSWORD=agropilot-local-test -p 127.0.0.1:5435:5432 postgres:17`
+   2. `TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/postgres' uv run pytest`
    3. `docker stop agropilot-test-pg`
 
-   - `-p 127.0.0.1:5433:5432` publishes the port only on the loopback interface, so other machines on the network cannot reach the container.
-   - Port 5433 avoids a conflict with any local PostgreSQL on 5432.
+   - `-p 127.0.0.1:5435:5432` publishes the port only on the loopback interface, so other machines on the network cannot reach the container.
+   - Port 5435 avoids a conflict with other local PostgreSQL servers (5432, and 5433 on the development machine). If it is busy, use another free port.
    - The README states that `agropilot-local-test` is a fixed throwaway password for this disposable, localhost-only container: never reuse it for production, and do not treat it as a real secret.
 4. **Benchmark:** both commands from section 10, with the macOS Docker caveat.
 5. **Manual smoke test** (about 2 minutes):
@@ -588,3 +588,20 @@ These are tracked here and repeated as the final task of the implementation plan
 | V6 | Exact versions of the new dependencies; the lock contains `psycopg` and not `psycopg2` | `uv.lock` after the user runs `uv add` |
 | V7 | The logged 503 warning for a wrong password contains no password | The wrong-password test |
 | V8 | Skipped backend-specific tests create no PostgreSQL database | The PostgreSQL run's skip count, plus no leftover `agropilot_test_` databases after the run (one read-only `psql` listing, which the user runs) |
+
+## 15. Revision 5: changes made during implementation (2026-11-17)
+
+Recorded after implementation, at the user's request. The sections above are updated where noted; everything else stands as approved.
+
+| Change | Why | Where |
+|---|---|---|
+| The setup script runs as `uv run python -m scripts.setup_postgres` | `python scripts/setup_postgres.py` puts `scripts/` on the import path, so `import db` fails | Section 8, README |
+| The PostgreSQL test container uses port 5435 | Port 5433 was taken by another project's PostgreSQL server, where the test fixtures would have created and dropped databases | Section 11, README, CLAUDE.md |
+| `parse_database_url` refuses a server URL with more than one `@`, and errors about a bad URL use a fixed message without the URL | An unencoded `@` in the password puts the rest of the password into the host, port, or database name, which appear in errors and logs | `db.py`, `scripts/setup_postgres.py` |
+| Printed and logged URLs hide the password and leave out the query string | The query string can hold secrets, such as `sslpassword` | `db.display_url` |
+| At startup the app logs the selected backend and target, for example `Database: postgresql, postgresql+psycopg://app:***@host:5432/db` | Makes the "unset or empty means SQLite" fallback (section 4, unchanged) visible to the operator | `main.py` lifespan, logged through uvicorn's logger |
+| Both engines use `hide_parameters=True` | Database errors are logged, and their bound values (farm and plot names) are user data | `db.py` |
+| PostgreSQL connections time out after 5 seconds (`connect_timeout`) | A host that drops packets would otherwise block each connect for the operating system's TCP timeout | `db.py` |
+| `pytest` stops before any test if `.env` defines `TEST_DATABASE_URL` | Replaces the warning in section 9: from `.env`, it would silently switch every test run to PostgreSQL | `tests/conftest.py` |
+
+**Not changed:** the precedence and fallback rule in section 4, where an unset or empty `DATABASE_URL` means the default SQLite file. A startup check that fails on an invalid URL is deferred.
