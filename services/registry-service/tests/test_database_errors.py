@@ -1,10 +1,12 @@
 import sqlite3
 
+import psycopg
 import pytest
+import sqlalchemy.exc
 from fastapi.testclient import TestClient
 
 from conftest import seed_database
-from db import is_unavailable
+from db import is_postgres_unavailable, is_unavailable, violated_constraint
 from main import app
 from repositories import catalogues as catalogue_repository
 
@@ -80,3 +82,46 @@ def test_is_unavailable_classification(error_name, unavailable):
     exc.sqlite_errorname = error_name
 
     assert is_unavailable(exc) is unavailable
+
+
+@pytest.mark.parametrize("sqlstate", ["08006", "08001", "28P01", "28000", "3D000", "53300", "57P01", "57P03", "58030"])
+def test_postgres_unavailable_sqlstates(sqlstate):
+    assert is_postgres_unavailable(psycopg.errors.lookup(sqlstate)("test")) is True
+
+
+@pytest.mark.parametrize("sqlstate", ["57014", "40001", "40P01", "42601"])
+def test_postgres_sqlstates_that_are_not_unavailable(sqlstate):
+    assert is_postgres_unavailable(psycopg.errors.lookup(sqlstate)("test")) is False
+
+
+def test_client_side_operational_error_without_sqlstate_is_unavailable():
+    assert is_postgres_unavailable(psycopg.OperationalError("connection refused")) is True
+
+
+def test_client_side_data_error_without_sqlstate_is_not_unavailable():
+    assert is_postgres_unavailable(psycopg.DataError("NUL")) is False
+
+
+def sqlite_error(error_class, error_name):
+    exc = error_class("test")
+    exc.sqlite_errorname = error_name
+    return exc
+
+
+def integrity_error(orig):
+    return sqlalchemy.exc.IntegrityError("stmt", {}, orig)
+
+
+@pytest.mark.parametrize(
+    ("orig", "expected"),
+    [
+        (sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_UNIQUE"), "unique"),
+        (sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_FOREIGNKEY"), "foreign_key"),
+        (sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_NOTNULL"), None),
+        (psycopg.errors.lookup("23505")("test"), "unique"),
+        (psycopg.errors.lookup("23503")("test"), "foreign_key"),
+        (psycopg.errors.lookup("23502")("test"), None),
+    ],
+)
+def test_violated_constraint(orig, expected):
+    assert violated_constraint(integrity_error(orig)) == expected

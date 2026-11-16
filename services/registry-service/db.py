@@ -6,9 +6,11 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated
 
+import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends
 from sqlalchemy import Engine, create_engine, make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import NullPool
 
 SERVICE_DIR = Path(__file__).resolve().parent
@@ -95,6 +97,40 @@ UNAVAILABLE_ERROR_NAMES = (
     "SQLITE_FULL",
     "SQLITE_READONLY",
 )
+
+# PostgreSQL SQLSTATE codes (or two-character classes) that mean the database
+# cannot be used right now. Anything else, such as a syntax error, stays a 500.
+POSTGRES_UNAVAILABLE_SQLSTATES = (
+    "08",                         # connection exception: connection lost or failed
+    "28",                         # invalid authorization: wrong password, access denied
+    "3D000",                      # database does not exist
+    "53",                         # insufficient resources: too many connections, disk full
+    "57P01", "57P02", "57P03",    # server shutting down, crashed, or still starting up
+    "58",                         # system error: I/O failure on the server
+)
+
+
+def is_postgres_unavailable(orig: psycopg.Error) -> bool:
+    """True if a psycopg error means the database is unavailable (503)."""
+    # The code is checked before the class: 3D000 (missing database) is a
+    # ProgrammingError, and 57014 (query cancelled) is an OperationalError.
+    if orig.sqlstate is None:
+        # The client library failed before the server answered, e.g. connection refused.
+        # A client-side DataError (a NUL in text) also has no code, hence the class check.
+        return isinstance(orig, psycopg.OperationalError)
+    return orig.sqlstate.startswith(POSTGRES_UNAVAILABLE_SQLSTATES)
+
+
+def violated_constraint(exc: IntegrityError) -> str | None:
+    """'unique' or 'foreign_key' for the violations the routers map; otherwise None."""
+    if isinstance(exc.orig, sqlite3.Error):
+        return {
+            "SQLITE_CONSTRAINT_UNIQUE": "unique",
+            "SQLITE_CONSTRAINT_FOREIGNKEY": "foreign_key",
+        }.get(getattr(exc.orig, "sqlite_errorname", None))
+    if isinstance(exc.orig, psycopg.Error):
+        return {"23505": "unique", "23503": "foreign_key"}.get(exc.orig.sqlstate)
+    return None
 
 
 def get_db_path() -> Path:
