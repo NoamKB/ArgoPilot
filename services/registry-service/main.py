@@ -1,8 +1,8 @@
 import logging
-import sqlite3
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
+from sqlalchemy.exc import SQLAlchemyError
 
 from db import is_unavailable
 from routers import catalogues, farms, plots
@@ -15,8 +15,8 @@ app.include_router(plots.router)
 app.include_router(catalogues.router)
 
 
-@app.exception_handler(sqlite3.DatabaseError)
-async def database_error_handler(request: Request, exc: sqlite3.DatabaseError):
+@app.exception_handler(SQLAlchemyError)
+async def database_error_handler(request: Request, exc: SQLAlchemyError):
     if not is_unavailable(exc):
         raise exc
     logger.warning("Database unavailable: %s", exc)

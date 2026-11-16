@@ -120,3 +120,8 @@ def test_default_url_is_absolute_service_registry_db(unset_database_url):
 def test_empty_database_url_uses_default(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "")
     assert get_database_url() == DEFAULT_DATABASE_URL
+
+
+def test_autouse_fixture_points_at_temporary_database(tmp_path):
+    # Guards against any test reaching the real registry.db or a DATABASE_URL from .env.
+    assert get_database_url() == f"sqlite:///{tmp_path / 'registry.db'}"

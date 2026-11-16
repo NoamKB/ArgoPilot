@@ -117,7 +117,7 @@ def main() -> int:
         server = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port), "--log-level", "warning"],
             cwd=SERVICE_DIR,
-            env={**os.environ, "REGISTRY_DB_PATH": str(db_path)},
+            env={**os.environ, "DATABASE_URL": f"sqlite:///{db_path}"},
         )
         base_url = f"http://127.0.0.1:{port}"
         try:

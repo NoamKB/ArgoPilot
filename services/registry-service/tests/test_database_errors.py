@@ -4,28 +4,26 @@ import psycopg
 import pytest
 import sqlalchemy.exc
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
-from conftest import seed_database
+from conftest import assert_unavailable, seed_database
 from db import is_postgres_unavailable, is_unavailable, violated_constraint
 from main import app
 from repositories import catalogues as catalogue_repository
 
 
-def assert_unavailable(response):
-    assert response.status_code == 503
-    assert response.headers["retry-after"] == "5"
-    assert response.json() == {"detail": "Database unavailable"}
-
-
-def test_missing_database_file_returns_503(isolated_db_path):
+@pytest.mark.sqlite_only
+def test_missing_database_file_returns_503(sqlite_db_path):
     client = TestClient(app)
 
     assert_unavailable(client.get("/v1/crops"))
-    assert not isolated_db_path.exists()
+    assert not sqlite_db_path.exists()
 
 
-def test_corrupt_database_file_returns_503(isolated_db_path):
-    isolated_db_path.write_bytes(b"not a database" * 512)
+@pytest.mark.sqlite_only
+def test_corrupt_database_file_returns_503(sqlite_db_path):
+    sqlite_db_path.write_bytes(b"not a database" * 512)
 
     assert_unavailable(TestClient(app).get("/v1/crops"))
 
@@ -36,18 +34,19 @@ def test_health_stays_ok_without_database():
     assert response.status_code == 200
 
 
-def test_reseeding_recovers_without_restart(isolated_db_path):
+@pytest.mark.sqlite_only
+def test_reseeding_recovers_without_restart(sqlite_db_path):
     client = TestClient(app)
     assert_unavailable(client.get("/v1/crops"))
 
-    seed_database(isolated_db_path)
+    seed_database(sqlite_db_path)
 
     assert client.get("/v1/crops").status_code == 200
 
 
 def test_sql_bug_returns_500_not_503(seeded_db, monkeypatch):
     def broken_query(conn):
-        return conn.execute("SELEC id FROM crops").fetchall()
+        return conn.execute(text("SELEC id FROM crops")).all()
 
     monkeypatch.setattr(catalogue_repository, "list_crops", broken_query)
     response = TestClient(app, raise_server_exceptions=False).get("/v1/crops")
@@ -57,8 +56,9 @@ def test_sql_bug_returns_500_not_503(seeded_db, monkeypatch):
     assert "retry-after" not in response.headers
 
 
-def test_unseeded_empty_file_returns_500(isolated_db_path):
-    isolated_db_path.write_bytes(b"")
+@pytest.mark.sqlite_only
+def test_unseeded_empty_file_returns_500(sqlite_db_path):
+    sqlite_db_path.write_bytes(b"")
 
     response = TestClient(app, raise_server_exceptions=False).get("/v1/crops")
 
@@ -78,10 +78,31 @@ def test_unseeded_empty_file_returns_500(isolated_db_path):
     ],
 )
 def test_is_unavailable_classification(error_name, unavailable):
-    exc = sqlite3.OperationalError("test")
-    exc.sqlite_errorname = error_name
+    orig = sqlite3.OperationalError("test")
+    orig.sqlite_errorname = error_name
 
-    assert is_unavailable(exc) is unavailable
+    assert is_unavailable(DBAPIError(None, None, orig)) is unavailable
+
+
+def test_pool_timeout_is_unavailable():
+    assert is_unavailable(sqlalchemy.exc.TimeoutError("pool")) is True
+
+
+def test_non_driver_sqlalchemy_error_is_not_unavailable():
+    assert is_unavailable(sqlalchemy.exc.ArgumentError("bad")) is False
+
+
+def test_postgres_driver_error_is_routed_to_postgres_rule():
+    assert is_unavailable(DBAPIError(None, None, psycopg.errors.lookup("57P01")("x"))) is True
+
+
+def test_pool_timeout_returns_503(client, monkeypatch):
+    def full_pool(conn):
+        raise sqlalchemy.exc.TimeoutError("QueuePool limit reached")
+
+    monkeypatch.setattr(catalogue_repository, "list_crops", full_pool)
+
+    assert_unavailable(client.get("/v1/crops"))
 
 
 @pytest.mark.parametrize("sqlstate", ["08006", "08001", "28P01", "28000", "3D000", "53300", "57P01", "57P03", "58030"])

@@ -1,16 +1,17 @@
-import sqlite3
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import Connection
+from sqlalchemy.exc import IntegrityError
 
-from db import DbConnection
+from db import DbConnection, violated_constraint
 from repositories import farms as farm_repository
 from schemas import Farm, FarmCreate, FarmUpdate
 
 router = APIRouter(prefix="/v1/farms", tags=["farms"])
 
 
-def get_farm_or_404(conn: sqlite3.Connection, farm_id: UUID) -> dict:
+def get_farm_or_404(conn: Connection, farm_id: UUID) -> dict:
     farm = farm_repository.get_farm(conn, str(farm_id))
     if farm is None:
         raise HTTPException(status_code=404, detail="Farm not found")
@@ -44,8 +45,8 @@ def update_farm(farm_id: UUID, body: FarmUpdate, conn: DbConnection):
 def delete_farm(farm_id: UUID, conn: DbConnection) -> None:
     try:
         deleted = farm_repository.delete_farm(conn, str(farm_id))
-    except sqlite3.IntegrityError as exc:
-        if exc.sqlite_errorname == "SQLITE_CONSTRAINT_FOREIGNKEY":
+    except IntegrityError as exc:
+        if violated_constraint(exc) == "foreign_key":
             raise HTTPException(status_code=409, detail="Farm still has plots") from exc
         raise
     if not deleted:

@@ -1,5 +1,6 @@
-import sqlite3
 from uuid import uuid4
+
+from sqlalchemy import Connection, text
 
 SELECT_PLOTS = """
     SELECT id, farm_id, name, area_m2, crop_id, planting_date, soil_id,
@@ -23,36 +24,33 @@ UPDATABLE_COLUMNS = {
 }
 
 
-def list_plots(conn: sqlite3.Connection, farm_id: str | None = None) -> list[dict]:
+def list_plots(conn: Connection, farm_id: str | None = None) -> list[dict]:
     if farm_id is None:
-        rows = conn.execute(SELECT_PLOTS)
+        result = conn.execute(text(SELECT_PLOTS))
     else:
-        rows = conn.execute(SELECT_PLOTS + " WHERE farm_id = ?", (farm_id,))
-    return [dict(row) for row in rows]
+        result = conn.execute(text(SELECT_PLOTS + " WHERE farm_id = :farm_id"), {"farm_id": farm_id})
+    return [dict(row) for row in result.mappings()]
 
 
-def get_plot(conn: sqlite3.Connection, plot_id: str) -> dict | None:
-    row = conn.execute(SELECT_PLOTS + " WHERE id = ?", (plot_id,)).fetchone()
+def get_plot(conn: Connection, plot_id: str) -> dict | None:
+    row = conn.execute(text(SELECT_PLOTS + " WHERE id = :id"), {"id": plot_id}).mappings().first()
     return dict(row) if row else None
 
 
-def create_plot(conn: sqlite3.Connection, fields: dict) -> dict:
+def create_plot(conn: Connection, fields: dict) -> dict:
     plot = {"id": str(uuid4()), **fields}
-    with conn:
-        conn.execute(INSERT_PLOT, plot)
+    conn.execute(text(INSERT_PLOT), plot)
     return plot
 
 
-def update_plot(conn: sqlite3.Connection, plot_id: str, changes: dict) -> bool:
+def update_plot(conn: Connection, plot_id: str, changes: dict) -> bool:
     if not changes.keys() <= UPDATABLE_COLUMNS:
         raise ValueError(f"Not updatable: {changes.keys() - UPDATABLE_COLUMNS}")
     assignments = ", ".join(f"{column} = :{column}" for column in changes)
-    with conn:
-        cursor = conn.execute(f"UPDATE plots SET {assignments} WHERE id = :id", {**changes, "id": plot_id})
-    return cursor.rowcount == 1
+    result = conn.execute(text(f"UPDATE plots SET {assignments} WHERE id = :id"), {**changes, "id": plot_id})
+    return result.rowcount == 1
 
 
-def delete_plot(conn: sqlite3.Connection, plot_id: str) -> bool:
-    with conn:
-        cursor = conn.execute("DELETE FROM plots WHERE id = ?", (plot_id,))
-    return cursor.rowcount == 1
+def delete_plot(conn: Connection, plot_id: str) -> bool:
+    result = conn.execute(text("DELETE FROM plots WHERE id = :id"), {"id": plot_id})
+    return result.rowcount == 1

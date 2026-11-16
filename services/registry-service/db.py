@@ -9,15 +9,14 @@ from typing import Annotated
 import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends
-from sqlalchemy import Engine, create_engine, make_url
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Connection, Engine, create_engine, make_url
+from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.pool import NullPool
 
 SERVICE_DIR = Path(__file__).resolve().parent
 ENV_FILE = SERVICE_DIR / ".env"
 DEFAULT_DATABASE_URL = f"sqlite:///{SERVICE_DIR / 'registry.db'}"
-
-DEFAULT_DB_PATH = Path(__file__).resolve().parent / "registry.db"
 
 
 def load_env_file(path: Path = ENV_FILE) -> None:
@@ -85,9 +84,22 @@ def dispose_engines() -> None:
             engine.dispose()
         _engines.clear()
 
+
+def get_db() -> Iterator[Connection]:
+    """Give the endpoint one connection inside one transaction."""
+    engine = get_engine(get_database_url())
+    with engine.begin() as conn:  # commits if the endpoint returns, rolls back if it raises
+        yield conn
+
+
+# scope="function" runs the commit BEFORE the response is sent. Without it, a commit
+# that fails after the endpoint returned would still send 201 to the client (JL-008).
+DbConnection = Annotated[Connection, Depends(get_db, scope="function")]
+
+
 # SQLite result codes that mean the database file cannot be used right now.
 # SQLITE_ERROR is not here: SQLite uses it for SQL mistakes such as a typo or a missing table.
-UNAVAILABLE_ERROR_NAMES = (
+SQLITE_UNAVAILABLE_ERROR_NAMES = (
     "SQLITE_CANTOPEN",
     "SQLITE_NOTADB",
     "SQLITE_CORRUPT",
@@ -133,24 +145,15 @@ def violated_constraint(exc: IntegrityError) -> str | None:
     return None
 
 
-def get_db_path() -> Path:
-    return Path(os.environ.get("REGISTRY_DB_PATH", DEFAULT_DB_PATH))
-
-
-def get_db() -> Iterator[sqlite3.Connection]:
-    uri = get_db_path().resolve().as_uri() + "?mode=rw"
-    conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
-    try:
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        yield conn
-    finally:
-        conn.close()
-
-
-def is_unavailable(exc: sqlite3.DatabaseError) -> bool:
-    error_name = getattr(exc, "sqlite_errorname", None) or ""
-    return error_name.startswith(UNAVAILABLE_ERROR_NAMES)
-
-
-DbConnection = Annotated[sqlite3.Connection, Depends(get_db)]
+def is_unavailable(exc: SQLAlchemyError) -> bool:
+    """True if a database error means the database is unavailable (503), not our bug (500)."""
+    if isinstance(exc, PoolTimeoutError):  # every pooled connection stayed busy for pool_timeout
+        return True
+    if not isinstance(exc, DBAPIError):
+        return False
+    if isinstance(exc.orig, sqlite3.Error):
+        error_name = getattr(exc.orig, "sqlite_errorname", None) or ""
+        return error_name.startswith(SQLITE_UNAVAILABLE_ERROR_NAMES)
+    if isinstance(exc.orig, psycopg.Error):
+        return is_postgres_unavailable(exc.orig)
+    return False
