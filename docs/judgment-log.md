@@ -67,3 +67,36 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** Reuse the existing API test suite for both databases, with SQLite as the default. PostgreSQL runs use a temporary, isolated test database through adapted fixtures. Tests that are specific to one database, such as a missing or corrupt SQLite file returning 503, stay separate. A short manual smoke-test section is added to the README.
 - **Reasoning:** This is a good tradeoff between the smallest solution and comprehensive test coverage of the entire change, without duplicating tests or adding unnecessary testing infrastructure.
 - **Tradeoffs:** The test fixtures become somewhat more complex. The PostgreSQL run is opt-in and needs Docker, so it protects only when someone runs it; there is no CI to run it automatically.
+
+## JL-007: Use SQLAlchemy Core to support SQLite and PostgreSQL
+
+- **Date:** 2026-11-12
+- **Assignment:** P1 — Registry Service API
+- **Context:** The app must support SQLite and PostgreSQL, selected by `DATABASE_URL`, but the repositories called `sqlite3` directly.
+- **AI recommendation:** SQLAlchemy Core with handwritten SQL and the `psycopg` driver.
+- **Alternatives:** A handwritten adapter over `sqlite3` and `psycopg`, set aside as custom code to own; PostgreSQL only, ruled out by the SQLite requirement.
+- **Decision:** Use SQLAlchemy Core: one engine per URL, `NullPool` for SQLite, and the default PostgreSQL pool with `pool_pre_ping=True`.
+- **Reasoning:** SQLAlchemy is a well-known library that supports both databases with one parameter syntax and built-in connection pooling, and it offers an ORM and Python SQL expressions if needed later.
+- **Tradeoffs:** It is a large dependency with its own concepts. The pool settings are defaults and will be benchmarked later.
+
+## JL-008: One database transaction per request
+
+- **Date:** 2026-11-13
+- **Assignment:** P1 — Registry Service API
+- **Context:** Repository-level commits would prevent future operations with several writes, such as creating a farm and a plot, from being atomic.
+- **AI recommendation:** First, commits inside each repository function; revised to a request-scoped transaction after the user questioned transaction ownership.
+- **Alternatives:** Repository-level commits, rejected because they block multi-write atomicity; an explicit `conn.commit()` in each write endpoint, set aside because a forgotten commit silently discards a write.
+- **Decision:** `get_db` opens one transaction per request with `engine.begin()`, and the dependency uses `scope="function"` so the commit runs before the response is sent; the FastAPI minimum rises to 0.121.0. Tests cover a failed commit (503 with `Retry-After`) and a full rollback when the second of two writes fails.
+- **Reasoning:** Centralized transaction ownership keeps repositories focused on SQL and lets future multi-write operations be atomic without refactoring or extra layers. A transaction that writes data must commit before the client is told the write succeeded.
+- **Tradeoffs:** Correctness depends on `scope="function"`: an experiment showed that without it, a failed commit still returns 201.
+
+## JL-009: Reject NUL characters in string inputs on both databases
+
+- **Date:** 2026-11-13
+- **Assignment:** P1 — Registry Service API
+- **Context:** PostgreSQL text cannot contain NUL characters, so NUL in names, catalogue IDs in plot bodies, or catalogue paths returned 201, 422, or 404 on SQLite but 500 on PostgreSQL.
+- **AI recommendation:** Accept it as a documented known difference without code changes, to keep SQLite's current behavior.
+- **Alternatives:** Rejecting NUL in name fields only, set aside because catalogue IDs and catalogue paths would still return 500 on PostgreSQL.
+- **Decision:** Reject NUL in all string inputs that reach the database with a 422 validation error on both databases. This makes both backends consistent, and deliberately changes legacy SQLite behavior for NUL input, the one intended exception to "existing endpoints keep behaving exactly the same".
+- **Reasoning:** PostgreSQL's data constraints are preserved instead of SQLite's permissive behavior, for PostgreSQL compatibility and predictable API behavior.
+- **Tradeoffs:** On SQLite, NUL input changes from 201, 422 "Unknown crop", or 404 to a 422 validation error.
