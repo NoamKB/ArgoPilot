@@ -10,7 +10,7 @@ import psycopg
 from dotenv import load_dotenv
 from fastapi import Depends
 from sqlalchemy import URL, Connection, Engine, create_engine, make_url
-from sqlalchemy.exc import DBAPIError, IntegrityError, SQLAlchemyError
+from sqlalchemy.exc import ArgumentError, DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.pool import NullPool
 
@@ -40,6 +40,15 @@ def parse_database_url(url: str) -> URL:
     if "@" in (parsed.host or ""):
         raise ValueError("DATABASE_URL: percent-encode '@' in the password as %40")
     return parsed
+
+
+def describe_database_url(url: str) -> str:
+    """Backend and target for logs, with the password hidden. Never echoes an invalid URL."""
+    try:
+        parsed = parse_database_url(url)
+    except (ValueError, ArgumentError) as error:
+        return f"invalid DATABASE_URL ({error})"
+    return f"{parsed.get_backend_name()}, {parsed.render_as_string(hide_password=True)}"
 
 
 def open_sqlite(db_path: Path) -> sqlite3.Connection:
