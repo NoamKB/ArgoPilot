@@ -39,11 +39,10 @@ Tests use pytest and `httpx2` (Starlette's `TestClient` imports it) from the `de
 
 ## Assignment
 
-AgroPilot is built incrementally: each course assignment builds on the existing implementation.
+AgroPilot is built incrementally: each course assignment builds on the existing implementation. Earlier specifications stay binding unless a later one changes them. Add a line here when a new assignment starts and move the **current** marker.
 
-- Current assignment: **P1 — Registry Service API**
-- Specification: https://github.com/alonitac/OzVeruach26/blob/main/tasks/p1_registry_api.md
-- Seed script: https://github.com/alonitac/OzVeruach26/blob/main/tasks/seed_registry.sh
+- **P1 — Registry Service API** (complete): [specification](https://github.com/alonitac/OzVeruach26/blob/main/tasks/p1_registry_api.md), [seed script](https://github.com/alonitac/OzVeruach26/blob/main/tasks/seed_registry.sh)
+- **P2 — Weather, planner, and the daily plan** (**current**): [specification](https://github.com/alonitac/OzVeruach26/blob/main/tasks/p2.md)
 - Course repository (read-only): https://github.com/alonitac/OzVeruach26. All implementation and Git changes stay in my personal AgroPilot repository.
 
 **Source of truth:** the official specification plus instructor clarifications documented in `docs/instructor-clarifications.md` (created when the first clarification arrives). If they seem to conflict, ask me.
