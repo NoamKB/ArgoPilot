@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Build a small SQLite file for registry-service.
-# Safe to run again: it deletes the file and writes a fresh one.
+# An existing file is left unchanged; --reset deletes it and writes a fresh one.
 #
 # Usage, from services/registry-service:
 #   bash seed_registry.sh
 #   bash seed_registry.sh /path/to/registry.db
+#   bash seed_registry.sh --reset [/path/to/registry.db]
 
 set -euo pipefail
 
@@ -13,8 +14,20 @@ if ! command -v sqlite3 >/dev/null 2>&1; then
   exit 1
 fi
 
+reset=false
+if [ "${1:-}" = "--reset" ]; then
+  reset=true
+  shift
+fi
+
 db="${1:-registry.db}"
-rm -f "$db"
+if [ -e "$db" ]; then
+  if [ "$reset" = false ]; then
+    echo "$db already exists and was not changed. To delete it and write a fresh one: bash seed_registry.sh --reset $db" >&2
+    exit 1
+  fi
+  rm -f "$db"
+fi
 
 sqlite3 "$db" <<'SQL'
 PRAGMA foreign_keys = ON;

@@ -26,7 +26,7 @@ uv sync
 bash seed_registry.sh
 ```
 
-`uv sync` installs the locked dependencies into `.venv`. `seed_registry.sh` creates `registry.db` with 2 farms, 4 plots, and the catalogues. It deletes any existing `registry.db` first, so run it again whenever you want a clean database.
+`uv sync` installs the locked dependencies into `.venv`. `seed_registry.sh` creates `registry.db` with 2 farms, 4 plots, and the catalogues. If the file already exists, the script stops with an error and leaves it unchanged, so your data survives. `bash seed_registry.sh --reset` deletes it and writes a fresh one.
 
 ## Running the API
 
@@ -61,7 +61,7 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/dbname  # PostgreSQL t
 ```
 
 - Put `DATABASE_URL` in `.env` in this directory. `.env` is git-ignored; `.env.example` shows the format and holds no credentials.
-- A variable already set in the environment wins over `.env`.
+- `config.py` reads the settings with [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/), on every request. A variable already set in the environment wins over `.env`, and `.env` wins over the default.
 - Keep `+psycopg` in PostgreSQL URLs. With a plain `postgresql://`, SQLAlchemy picks the driver by its own version (psycopg2 in 2.0, psycopg 3 in 2.1); this service installs psycopg 3 only.
 - Percent-encode special characters in a password, for example `@` as `%40` and `/` as `%2F`. The service refuses a URL with an unencoded `@` in the password, without printing the URL.
 - At startup the service logs the database it uses, with the password hidden, for example `INFO: Database: sqlite, sqlite:////…/registry.db`.
@@ -77,16 +77,31 @@ DATABASE_URL=sqlite:////tmp/registry-dev.db uv run uvicorn main:app --host 127.0
 
 ## PostgreSQL setup
 
-Create the tables and catalogues in an existing, empty PostgreSQL database:
+"Production" is PostgreSQL 17 in a Docker container, `agropilot-pg`, with the database `registry`. It is separate from the throwaway containers that the tests and the benchmark use.
 
-```bash
-DATABASE_URL='postgresql+psycopg://user:password@host:5432/dbname' uv run python -m scripts.setup_postgres
-```
+1. Create the container, with Docker running. `read -rs` asks for a password without showing it or saving it in your shell history:
+   ```bash
+   read -rs PG_PASSWORD
+   docker run -d --name agropilot-pg -e POSTGRES_PASSWORD="$PG_PASSWORD" -e POSTGRES_DB=registry -v agropilot-pg-data:/var/lib/postgresql/data -p 127.0.0.1:5436:5432 postgres:17
+   unset PG_PASSWORD
+   ```
+2. Add the URL to `.env`, with the same password, percent-encoded if needed:
+   ```bash
+   DATABASE_URL=postgresql+psycopg://postgres:<password>@127.0.0.1:5436/registry
+   ```
+3. Create the tables and load the 15 seed rows of `seed_registry.sh` (FR-2.2):
+   ```bash
+   uv run python -m scripts.setup_postgres --demo
+   ```
+
+The data lives in the named Docker volume `agropilot-pg-data`. It survives app restarts, `docker stop` and `docker start agropilot-pg`, Docker restarts, and removing the container. Only `docker volume rm agropilot-pg-data` deletes it.
+
+About `setup_postgres`:
 
 - **Initial schema setup only, not a migration tool.** An existing table is left unchanged, even if its definition differs, and an existing catalogue row is not updated.
 - Safe to run again: it uses `CREATE TABLE IF NOT EXISTS` and `INSERT ... ON CONFLICT DO NOTHING`, and never drops or deletes anything.
 - It refuses a SQLite URL and prints the target with the password hidden before changing anything.
-- `--demo` also inserts the 2 demo farms and 4 demo plots. **Never use `--demo` on a production database.**
+- Without `--demo`, it loads the catalogues only. `--demo` adds the 2 demo farms and 4 demo plots. Do not use `--demo` on a database that holds real grower data.
 - Run it with `python -m` from this directory, so that it can import `db`.
 
 ## Automated tests
@@ -143,24 +158,14 @@ While either runs, the uvicorn terminal shows errors, and macOS Activity Monitor
 
 ## Manual smoke test on PostgreSQL
 
-About 2 minutes, with Docker running. It uses its own container and port, so it does not affect the test container.
+About 2 minutes, against `agropilot-pg` after [PostgreSQL setup](#postgresql-setup). It changes no data.
 
-1. Start PostgreSQL:
-   ```bash
-   docker run -d --name agropilot-smoke-pg -e POSTGRES_PASSWORD=agropilot-local-test -p 127.0.0.1:5434:5432 postgres:17
-   ```
-2. Point the app at it: `cp .env.example .env`, then add this line to `.env`:
-   ```bash
-   DATABASE_URL=postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5434/postgres
-   ```
-3. Create the schema and demo data: `uv run python -m scripts.setup_postgres --demo`
-4. Start the app: `uv run uvicorn main:app --host 127.0.0.1 --port 8000`. In a second terminal:
+1. Start the app: `uv run uvicorn main:app --host 127.0.0.1 --port 8000`. The startup log shows `Database: postgresql, …@127.0.0.1:5436/registry`. In a second terminal:
    - `curl -s http://127.0.0.1:8000/v1/farms` lists the 2 demo farms.
    - Creating a plot with an existing name returns `409`:
      ```bash
      curl -s -i -X POST http://127.0.0.1:8000/v1/plots -H "Content-Type: application/json" -d '{"farm_id": "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001", "name": "North block", "area_m2": 1000, "crop_id": "tomato", "planting_date": "2026-03-01", "soil_id": "loam", "row_spacing_m": 1.5, "emitter_spacing_m": 0.4, "emitter_id": "dripnet-pc-1.0", "lat": 31.25, "lon": 34.79}'
      ```
    - Deleting a farm that has plots returns `409`: `curl -s -i -X DELETE http://127.0.0.1:8000/v1/farms/b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001`
-5. `docker stop agropilot-smoke-pg`. Then `curl -s -i http://127.0.0.1:8000/v1/farms` returns `503` with `retry-after: 5`.
-6. `docker start agropilot-smoke-pg`, wait a few seconds, and repeat the request: it returns `200` without restarting the app.
-7. Clean up: stop the app, run `docker rm -f agropilot-smoke-pg`, and remove the `DATABASE_URL` line from `.env` so the app uses `registry.db` again.
+2. `docker stop agropilot-pg`. Then `curl -s -i http://127.0.0.1:8000/v1/farms` returns `503` with `retry-after: 5`.
+3. `docker start agropilot-pg`, wait a few seconds, and repeat the request: it returns `200` with the same farms, without restarting the app.

@@ -7,15 +7,13 @@ import sqlalchemy.exc
 from sqlalchemy import make_url
 from sqlalchemy.pool import NullPool, QueuePool
 
+from config import DEFAULT_DATABASE_URL, SERVICE_DIR, Settings
 from conftest import defines_test_database_url
 from db import (
-    DEFAULT_DATABASE_URL,
     describe_database_url,
-    SERVICE_DIR,
     dispose_engines,
     get_database_url,
     get_engine,
-    load_env_file,
 )
 
 
@@ -26,12 +24,10 @@ def fresh_engine_cache():
 
 
 @pytest.fixture
-def unset_database_url(monkeypatch):
-    # delenv alone records nothing when the variable is already unset, so a value
-    # written later by load_env_file would leak into other tests. setenv first
-    # records "was unset", and teardown then removes whatever was written.
-    monkeypatch.setenv("DATABASE_URL", "unused")
+def unset_database_url(monkeypatch, tmp_path):
     monkeypatch.delenv("DATABASE_URL")
+    # Without the variable, Settings would read the real .env, which may point at a real database.
+    monkeypatch.setitem(Settings.model_config, "env_file", tmp_path / "missing.env")
 
 
 def make_sqlite_file(path: Path) -> Path:
@@ -111,16 +107,22 @@ def test_percent_encoded_password_is_decoded():
 def test_env_file_value_is_used_when_variable_unset(tmp_path, unset_database_url):
     env_file = tmp_path / ".env"
     env_file.write_text("DATABASE_URL=sqlite:////from/env/file.db\n")
-    load_env_file(env_file)
-    assert get_database_url() == "sqlite:////from/env/file.db"
+    assert Settings(_env_file=env_file).database_url == "sqlite:////from/env/file.db"
 
 
 def test_environment_wins_over_env_file(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:////from/environment.db")
     env_file = tmp_path / ".env"
     env_file.write_text("DATABASE_URL=sqlite:////from/env/file.db\n")
-    load_env_file(env_file)
-    assert get_database_url() == "sqlite:////from/environment.db"
+    assert Settings(_env_file=env_file).database_url == "sqlite:////from/environment.db"
+
+
+def test_empty_variable_wins_over_env_file_and_means_default(tmp_path, monkeypatch):
+    # JL-010: an exported empty DATABASE_URL selects the default SQLite file, not the .env value.
+    monkeypatch.setenv("DATABASE_URL", "")
+    env_file = tmp_path / ".env"
+    env_file.write_text("DATABASE_URL=sqlite:////from/env/file.db\n")
+    assert Settings(_env_file=env_file).database_url == DEFAULT_DATABASE_URL
 
 
 def test_default_url_is_absolute_service_registry_db(unset_database_url):

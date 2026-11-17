@@ -1,5 +1,4 @@
 import functools
-import os
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -7,29 +6,19 @@ from pathlib import Path
 from typing import Annotated
 
 import psycopg
-from dotenv import load_dotenv
 from fastapi import Depends
 from sqlalchemy import URL, Connection, Engine, create_engine, make_url
 from sqlalchemy.exc import ArgumentError, DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.pool import NullPool
 
-SERVICE_DIR = Path(__file__).resolve().parent
-ENV_FILE = SERVICE_DIR / ".env"
-DEFAULT_DATABASE_URL = f"sqlite:///{SERVICE_DIR / 'registry.db'}"
-
-
-def load_env_file(path: Path = ENV_FILE) -> None:
-    """Load .env into the environment. A variable that is already set wins."""
-    load_dotenv(path, override=False)
-
-
-# Here, not in main.py, so that scripts read configuration exactly the way the app does.
-load_env_file()
+from config import Settings
 
 
 def get_database_url() -> str:
-    return os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
+    # Settings are read on every call, as os.environ was before, so a test that sets
+    # DATABASE_URL takes effect at once. The app, the scripts, and the tests all read the URL here.
+    return Settings().database_url
 
 
 # Fixed text: an error about a bad URL must never repeat the URL, which may hold a password.

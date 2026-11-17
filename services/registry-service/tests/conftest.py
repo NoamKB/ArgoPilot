@@ -13,15 +13,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, make_url, text
 from sqlalchemy.pool import NullPool
 
-from db import ENV_FILE, dispose_engines, get_engine
+from config import ENV_FILE
+from db import dispose_engines, get_engine
 from main import app
 from scripts.setup_postgres import create_schema, insert_catalogues, insert_demo_data
 
 SERVICE_DIR = Path(__file__).resolve().parent.parent
 SEED_SCRIPT = SERVICE_DIR / "seed_registry.sh"
 
-# pytest_sessionstart stops the run if .env defines TEST_DATABASE_URL, so this value
-# always comes from the shell, even though importing db has loaded .env.
+# Always from the shell: .env is never loaded into os.environ, and pytest_sessionstart
+# stops the run if .env defines TEST_DATABASE_URL.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 BACKEND = "postgresql" if TEST_DATABASE_URL else "sqlite"
 TEST_DATABASE_PREFIX = "agropilot_test_"
