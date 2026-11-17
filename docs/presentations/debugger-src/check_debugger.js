@@ -3,7 +3,7 @@ const html = fs.readFileSync(process.argv[2], "utf8");
 const m = html.match(/<script id="data">([\s\S]*?)<\/script>/);
 const vm = require("vm");
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(m[1] + "\nthis.out={FILES,MISSING,SCEN,LANES,build,requestText,responseText,CFG};", ctx);
+vm.runInContext(m[1] + "\nthis.out={FILES,MISSING,SCEN,LANES,build,requestText,responseText,CFG,TERMINAL};", ctx);
 const { FILES, MISSING, SCEN, LANES, build, requestText, responseText } = ctx.out;
 const lanes = new Set(LANES.map(l => l.k));
 let problems = [...MISSING.map(x => "MISSING " + x)];
@@ -12,7 +12,7 @@ const verbose = process.argv[3];
 for (const s of SCEN) {
   const k = s.key;
   if (k !== "startup") { FILES["request.http"] = requestText(k).split("\n"); FILES["response.http"] = responseText(k).split("\n"); }
-  FILES["terminal"] = ["a","b","c","d","e","f"];
+  FILES["terminal"] = ctx.out.TERMINAL.split("\n");
   const steps = build(k);
   steps.forEach((st, i) => {
     const f = FILES[st.file];

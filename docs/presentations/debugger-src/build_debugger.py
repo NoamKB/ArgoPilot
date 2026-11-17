@@ -1,14 +1,20 @@
-"""Embed the real registry-service source files into the debugger template.
+"""Embed the real registry-service source files into a debugger template.
 
-Rebuild the debugger after the registry-service code changes. Run from services/registry-service
-(the script reads the source files from the current directory and needs the service's packages):
+There are two debuggers:
+- request-debugger-sqlalchemy.html, from debugger-sqlalchemy.template.html: the current code
+  (SQLAlchemy Core, PostgreSQL). Rebuild it after the registry-service code changes.
+- request-debugger.html, from debugger.template.html: the P1 snapshot (sqlite3), with the P1
+  source already embedded. Do not rebuild it from main: its step texts match the P1 code only.
+
+Run from services/registry-service (the script reads the source files from the current directory
+and needs the service's packages):
     uv run python ../../docs/presentations/debugger-src/build_debugger.py \
-        ../../docs/presentations/debugger-src/debugger.template.html \
-        ../../docs/presentations/request-debugger.html
+        ../../docs/presentations/debugger-src/debugger-sqlalchemy.template.html \
+        ../../docs/presentations/request-debugger-sqlalchemy.html
 Then check the step data (needs Node.js):
-    node ../../docs/presentations/debugger-src/check_debugger.js ../../docs/presentations/request-debugger.html
-The step texts in the template refer to line numbers in the source files, so after a code change
-the checker may report lines out of range, and the step texts may need updating.
+    node ../../docs/presentations/debugger-src/check_debugger.js ../../docs/presentations/request-debugger-sqlalchemy.html
+The step texts find their lines by searching the source, so after a code change the checker may
+report missing lines, and the step texts may need updating.
 """
 import json
 import sqlite3
@@ -16,7 +22,9 @@ import sys
 from pathlib import Path
 
 import fastapi
+import psycopg
 import pydantic
+import sqlalchemy
 import starlette
 import uvicorn
 
@@ -24,7 +32,7 @@ FILES = [
     "main.py", "db.py", "schemas.py",
     "routers/catalogues.py", "routers/farms.py", "routers/plots.py",
     "repositories/catalogues.py", "repositories/farms.py", "repositories/plots.py",
-    "seed_registry.sh",
+    "seed_registry.sh", "scripts/setup_postgres.py",
 ]
 
 template_path, output_path = Path(sys.argv[1]), Path(sys.argv[2])
@@ -32,7 +40,8 @@ service = Path.cwd()
 sources = {name: (service / name).read_text(encoding="utf-8") for name in FILES}
 versions = (
     f"FastAPI {fastapi.__version__} · Starlette {starlette.__version__} · Pydantic {pydantic.VERSION}"
-    f" · uvicorn {uvicorn.__version__} · Python {sys.version.split()[0]} · SQLite {sqlite3.sqlite_version}"
+    f" · uvicorn {uvicorn.__version__} · SQLAlchemy {sqlalchemy.__version__} · psycopg {psycopg.__version__}"
+    f" · Python {sys.version.split()[0]} · SQLite {sqlite3.sqlite_version}"
 )
 
 # "</" would end the <script> element early, so escape it inside the JSON.
