@@ -10,7 +10,7 @@ The repo has one service, `registry-service`, which implements the P1 specificat
 
 ## Commands
 
-There is no root `pyproject.toml`. Run every `uv` command from the service directory, using Python 3.12 (`.python-version`).
+There is no root `pyproject.toml`. Run every `uv` command from the service directory, using Python 3.12 from the service's own `.python-version` (uv ignores the repo-root file once a service has its own `pyproject.toml`, so every new service needs one).
 
 ```bash
 cd services/registry-service
@@ -25,7 +25,10 @@ uv run python scripts/measure_p95.py --database-url URL   # benchmark an existin
 uv run python -m scripts.setup_postgres [--demo]       # PostgreSQL schema + catalogues (initial setup only); --demo adds the demo farms and plots (FR-2.2)
 TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/postgres' uv run pytest   # suite on PostgreSQL; container command in the service README
 uv lock --check                                        # verify uv.lock matches pyproject.toml
+uv audit --locked --preview-features audit-command     # known vulnerabilities in uv.lock (CI job `audit`)
 ```
+
+**CI:** `.github/workflows/registry-service.yaml` runs on every pull request into `main`. Job `test` runs the suite on SQLite, then on a PostgreSQL service container, and requires 100% branch coverage over both runs (two-step commands in the service README, "Automated tests"). Job `audit` runs `uv audit`. The `protect-main` ruleset requires a pull request and both jobs; actions are pinned to commit SHAs.
 
 To debug, use the `registry-service` config in `.vscode/launch.json`. It runs the same uvicorn command under debugpy with the service's `.venv` interpreter, so run `uv sync` first.
 
