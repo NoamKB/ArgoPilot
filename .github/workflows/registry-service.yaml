@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Verify Python version
+        run: uv run python --version
+
       # Coverage is checked over both runs: some lines run only on SQLite, others only on PostgreSQL.
       - name: Run tests on SQLite
         run: uv run pytest --cov --cov-fail-under=0 --cov-report=
