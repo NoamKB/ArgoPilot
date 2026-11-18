@@ -1,9 +1,15 @@
 import json
+import sqlite3
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from uuid import UUID
 
 import pytest
+from fastapi.testclient import TestClient
+
+from main import app
+from repositories import farms as farm_repository
+from test_database_errors import integrity_error, sqlite_error
 
 DEMO_FARM_ID = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001"
 EAST_FARM_ID = "a9c1e4b2-6f70-4d8e-a144-3f8b5c904004"
@@ -129,3 +135,15 @@ def test_parallel_farm_creation_against_real_server(live_server):
     assert statuses == [201] * 20
     with urllib.request.urlopen(f"{live_server}/v1/farms", timeout=10) as response:
         assert len(json.load(response)) == 22
+
+
+def test_delete_farm_with_another_integrity_error_returns_500(seeded_db, monkeypatch):
+    # Only a foreign-key violation means "still has plots"; any other is unexpected.
+    def delete_fails(conn, farm_id):
+        raise integrity_error(sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_CHECK"))
+
+    monkeypatch.setattr(farm_repository, "delete_farm", delete_fails)
+    response = TestClient(app, raise_server_exceptions=False).delete(f"/v1/farms/{EAST_FARM_ID}")
+
+    assert response.status_code == 500
+    assert response.text == "Internal Server Error"

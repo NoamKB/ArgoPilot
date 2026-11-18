@@ -1,10 +1,16 @@
 import json
+import sqlite3
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 import pytest
+from fastapi.testclient import TestClient
+
+from main import app
+from repositories import plots as plot_repository
+from test_database_errors import integrity_error, sqlite_error
 
 DEMO_FARM_ID = "b7e2c0a0-3c1d-4f0a-9a11-0c5d2e6f1001"
 EAST_FARM_ID = "a9c1e4b2-6f70-4d8e-a144-3f8b5c904004"
@@ -282,3 +288,38 @@ def test_high_precision_coordinates_round_trip(client):
     assert created.status_code == 201
     stored = client.get(f"/v1/plots/{created.json()['id']}").json()
     assert (stored["lat"], stored["lon"]) == (31.2512345, 34.7912345678)
+
+
+# The next tests simulate another request changing the data between the router's
+# checks and the UPDATE: the repository is replaced by one that fails the way the database would.
+
+
+def test_patch_when_farm_is_deleted_meanwhile_returns_404(client, monkeypatch):
+    def update_fails(conn, plot_id, changes):
+        raise integrity_error(sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_FOREIGNKEY"))
+
+    monkeypatch.setattr(plot_repository, "update_plot", update_fails)
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK_ID}", json={"farm_id": EAST_FARM_ID})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Farm not found"}
+
+
+def test_patch_with_another_integrity_error_returns_500(seeded_db, monkeypatch):
+    def update_fails(conn, plot_id, changes):
+        raise integrity_error(sqlite_error(sqlite3.IntegrityError, "SQLITE_CONSTRAINT_CHECK"))
+
+    monkeypatch.setattr(plot_repository, "update_plot", update_fails)
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK_ID}", json={"name": "Renamed"})
+
+    assert response.status_code == 500
+    assert response.text == "Internal Server Error"
+
+
+def test_patch_when_plot_is_deleted_meanwhile_returns_404(client, monkeypatch):
+    monkeypatch.setattr(plot_repository, "update_plot", lambda conn, plot_id, changes: False)  # no row updated
+    response = client.patch(f"/v1/plots/{NORTH_BLOCK_ID}", json={"name": "Renamed"})
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Plot not found"}

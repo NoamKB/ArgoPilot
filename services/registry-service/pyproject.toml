@@ -18,7 +18,7 @@ package = false
 dev = [
     "httpx2~=2.16",
     "pytest~=9.2",
-    "pytest-cov>=7.1.0",
+    "pytest-cov~=7.1",
 ]
 
 [tool.pytest.ini_options]

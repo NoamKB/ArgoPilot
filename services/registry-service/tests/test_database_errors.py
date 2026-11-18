@@ -142,10 +142,16 @@ def integrity_error(orig):
         (psycopg.errors.lookup("23505")("test"), "unique"),
         (psycopg.errors.lookup("23503")("test"), "foreign_key"),
         (psycopg.errors.lookup("23502")("test"), None),
+        (ValueError("error from another driver"), None),
     ],
 )
 def test_violated_constraint(orig, expected):
     assert violated_constraint(integrity_error(orig)) == expected
+
+
+def test_error_from_another_driver_is_not_unavailable():
+    # Neither SQLite nor psycopg: unknown, so a 500 (a bug to look at), not a 503.
+    assert is_unavailable(DBAPIError("stmt", {}, ValueError("error from another driver"))) is False
 
 
 def test_unreachable_postgres_returns_503(monkeypatch):

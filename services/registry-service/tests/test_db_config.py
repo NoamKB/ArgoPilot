@@ -16,6 +16,7 @@ from db import (
     get_database_url,
     get_engine,
     load_env_file,
+    open_sqlite,
 )
 
 
@@ -192,3 +193,26 @@ def test_postgres_engine_sets_a_5_second_connect_timeout(monkeypatch):
     with pytest.raises(sqlalchemy.exc.OperationalError):
         engine.connect()
     assert received["connect_timeout"] == 5
+
+
+def test_unsupported_backend_is_refused():
+    with pytest.raises(ValueError, match="Unsupported DATABASE_URL backend: mysql"):
+        get_engine("mysql://user@127.0.0.1/db")
+
+
+def test_failed_foreign_keys_pragma_closes_the_connection(tmp_path, monkeypatch):
+    class PragmaFailsConnection:
+        closed = False
+
+        def execute(self, sql):
+            raise sqlite3.OperationalError("disk I/O error")
+
+        def close(self):
+            self.closed = True
+
+    connection = PragmaFailsConnection()
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
+
+    with pytest.raises(sqlite3.OperationalError):
+        open_sqlite(tmp_path / "registry.db")
+    assert connection.closed  # not left open: NullPool would never close it
