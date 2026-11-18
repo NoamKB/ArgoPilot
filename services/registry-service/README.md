@@ -126,6 +126,18 @@ docker stop agropilot-test-pg
 - `agropilot-local-test` is a fixed throwaway password for this disposable, localhost-only container. Never reuse it for production, and do not treat it as a real secret.
 - Set `TEST_DATABASE_URL` in the shell for one run. If `.env` defines it, `pytest` stops before running any test.
 
+**Coverage** must be 100% (`fail_under` in `pyproject.toml`), with branch coverage. Some lines run only on SQLite and others only on PostgreSQL, so coverage is measured over both runs, with the test container running:
+
+```bash
+uv run pytest --cov --cov-fail-under=0 --cov-report=
+TEST_DATABASE_URL='postgresql+psycopg://postgres:agropilot-local-test@127.0.0.1:5435/postgres' uv run pytest --cov --cov-append --cov-report=term --cov-report=html
+open htmlcov/index.html
+```
+
+- The first run records coverage without checking it. The second adds its own (`--cov-append`) and fails below 100%.
+- A single `uv run pytest --cov` on SQLite stops at about 95%: it skips the PostgreSQL-only lines of `scripts/setup_postgres.py`.
+- CI (`.github/workflows/registry-service.yaml`) runs the same two runs on every pull request into `main`, with a PostgreSQL service container, and uploads `htmlcov/` as the `coverage-report` artifact.
+
 ## Performance & load testing
 
 **Official NFR-1.1 benchmark** (`GET` list and `GET` by id, p95 at most 100 ms at 10 requests per second):

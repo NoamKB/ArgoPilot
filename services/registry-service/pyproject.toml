@@ -19,6 +19,7 @@ package = false
 dev = [
     "httpx2~=2.16",
     "pytest~=9.2",
+    "pytest-cov~=7.1",
 ]
 
 [tool.pytest.ini_options]
@@ -28,3 +29,12 @@ markers = [
     "sqlite_only: needs the SQLite backend",
     "postgres_only: needs TEST_DATABASE_URL",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
