@@ -60,6 +60,11 @@ class Farm(BaseModel):
     name: str
 
 
+class FarmArea(BaseModel):
+    farm_id: UUID
+    total_area_m2: float
+
+
 class PlotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
