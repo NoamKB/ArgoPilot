@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: explain-soil-field
+expected_outcome: |
+  A correct, short explanation (plant-available water the soil holds, in mm per metre of soil depth),
+  with no files changed. The registry-api skill is not needed for this question.

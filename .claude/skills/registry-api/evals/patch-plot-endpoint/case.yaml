@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: patch-plot-endpoint
+expected_outcome: |
+  PATCH changes only the fields in the body; an empty body returns 200 with the plot unchanged; unknown plot 404
+  "Plot not found"; unknown farm 404 "Farm not found"; unknown crop 422 "Unknown crop"; duplicate name on the farm 409
+  "Plot name already exists on this farm"; unknown or invalid fields 422; tests for every case; pytest passes.
