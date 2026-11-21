@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AgroPilot helps a grower manage agricultural crops with modern AI. The product name is **AgroPilot**; the repository folder is spelled `ArgoPilot`. Use "AgroPilot" in code and docs.
 
-The repo has one service, `registry-service`, which implements the P1 specification (see Assignment). Later assignments build on it.
+The repo has `registry-service` (P1, moved to PostgreSQL in P2) and `weather-service` (P2). `planner-service` and `frontend` (P2) are not built yet; `services/planner-service/` holds only the FAO-56 research.
 
 ## Commands
 
@@ -28,9 +28,19 @@ uv lock --check                                        # verify uv.lock matches 
 uv audit --locked --preview-features audit-command     # known vulnerabilities in uv.lock (CI job `audit`)
 ```
 
+```bash
+cd services/weather-service
+uv sync && cp .env.example .env                        # first time; every variable but PROVIDER_API_KEY is required
+uv run uvicorn main:app --host 127.0.0.1 --port 8001   # run the service (calls Open-Meteo)
+uv run pytest --cov                                    # all tests, 100% branch coverage; no network, never reads .env
+uv run python scripts/measure_p95.py                   # NFR-2.3 benchmark against a local fake Open-Meteo, 120 s at 10 rps
+```
+
+weather-service has no CI workflow yet.
+
 **CI:** `.github/workflows/registry-service.yaml` runs on every pull request into `main`. Job `test` runs the suite on SQLite, then on a PostgreSQL service container, and requires 100% branch coverage over both runs (two-step commands in the service README, "Automated tests"). Job `audit` runs `uv audit`. The `protect-main` ruleset requires a pull request and both jobs; actions are pinned to commit SHAs.
 
-To debug, use the `registry-service` config in `.vscode/launch.json`. It runs the same uvicorn command under debugpy with the service's `.venv` interpreter, so run `uv sync` first.
+To debug, use the `registry-service` or `weather-service` config in `.vscode/launch.json`. It runs the same uvicorn command under debugpy with the service's `.venv` interpreter, so run `uv sync` first.
 
 Tests use pytest and `httpx2` (Starlette's `TestClient` imports it) from the `dev` dependency group. An autouse fixture points `DATABASE_URL` at a temporary SQLite file for every test; seeding needs the `sqlite3` CLI. With `TEST_DATABASE_URL` (localhost only; set in the shell, and pytest stops if `.env` defines it), tests that need a database get a fresh PostgreSQL database each; `sqlite_only` and `postgres_only` markers skip tests for the other backend. No linter, formatter, or type checker is configured; the ruff and mypy entries in `.gitignore` are placeholders.
 
@@ -38,7 +48,8 @@ Tests use pytest and `httpx2` (Starlette's `TestClient` imports it) from the `de
 
 - **Services:** each service lives in `services/<name>/` and is self-contained, with its own `pyproject.toml`, `uv.lock`, and `.venv`. There is no uv workspace and no shared code between services.
 - **`registry-service`:** a FastAPI app on SQLite (`registry.db`, local and tests) or PostgreSQL (production: the Docker container `agropilot-pg`, database `registry`, port 5436), selected by `DATABASE_URL`, which `config.py` reads with pydantic-settings from the environment or `.env` on every call. A request goes `routers/` (HTTP: input, status codes, order of checks) → Pydantic models in `schemas.py` → `repositories/` (handwritten SQL with SQLAlchemy Core `text()`, return data or `None`) → database. There is no service layer and no ORM. `db.py` keeps one engine per URL (SQLite: `NullPool`, bound to its file, `mode=rw`, foreign keys on; PostgreSQL: psycopg 3, `pool_pre_ping`, 5 s `connect_timeout`; both with `hide_parameters=True`). At startup `main.py` logs the selected database with the password hidden. `get_db` opens one transaction per request with `engine.begin()`, and `Depends(get_db, scope="function")` commits before the response is sent; repositories and routers never commit. Endpoints are plain `def` because the drivers block. Errors use FastAPI's defaults; the one custom handler in `main.py` turns database-unavailable errors into `503` with `Retry-After`, classified by `sqlite_errorname` or PostgreSQL SQLSTATE so SQL bugs stay `500`. String inputs reject NUL characters (PostgreSQL cannot store them). There is no auth.
-- **Imports depend on the working directory:** `[tool.uv] package = false` means the service is not an installed package, so `main:app` only resolves when uvicorn runs from `services/registry-service` (the launch config sets `cwd` for this).
+- **`weather-service`:** FastAPI + `httpx2`, no database. `GET /v1/forecast` (`routers/forecast.py`) → in-memory cache per 0.1° grid cell (`cache.py`, fresh 3 h) → Open-Meteo (`provider.py`, the only place with Open-Meteo field names; 1 attempt + 2 retries, strict check of every field, unit and date) → on failure, the cached forecast up to 24 h old with `stale: true`, else `503 UNAVAILABLE` + `Retry-After`. It never fills in a missing value (FR-2.8). Errors are `{code, detail}`. `config.py` is read once at startup, and a missing variable stops it. Tests swap in a `MockTransport` fake provider and override the `utc_now` dependency. Worst case before a stale answer or 503 is about 9 s (3 × 3 s timeout), so the planner's timeout for weather-service must be longer.
+- **Imports depend on the working directory:** `[tool.uv] package = false` means the service is not an installed package, so `main:app` only resolves when uvicorn runs from the service's own folder (the launch configs set `cwd` for this).
 
 ## Assignment
 

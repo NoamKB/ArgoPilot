@@ -67,6 +67,7 @@ if i_first < 1 or i_last > season_length:        # season_length: tomato 180, pe
 - The planting day itself (i = 1) and the last season day (i = 180 or 210) are inside the season.
 - A plot near the end of its season can still get a shorter plan. For example, `days=1` works on its last day.
 - The check needs only the plot, today and `days`, not the forecast.
+- Order in the planner: read the plot from registry-service → season check → request the forecast from weather-service. An out-of-season plot gets 409 without a weather call, even when weather-service is down (JL-020).
 
 Boundary cases are in worked-examples.md, B6.
 

@@ -17,6 +17,23 @@
       "cwd": "${workspaceFolder}/services/registry-service",
       "jinja": true,
       "justMyCode": true
+    },
+    {
+      "name": "weather-service",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/services/weather-service/.venv/bin/python",
+      "module": "uvicorn",
+      "args": [
+        "main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8001"
+      ],
+      "cwd": "${workspaceFolder}/services/weather-service",
+      "jinja": true,
+      "justMyCode": true
     }
   ]
 }

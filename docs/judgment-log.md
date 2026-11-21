@@ -221,3 +221,14 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** If the first plan day is before planting or the last plan day is past the season, the planner rejects the whole request with `409` and the body `{"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}`. The check runs after the plot is read from registry-service and before the forecast is requested from weather-service.
 - **Reasoning:** The request itself is valid; the problem is the plot's current state, which is what 409 means. Any plan for those days would contain invented numbers. A specific code lets the frontend show the grower a clear message. Checking before the weather call avoids a call for a plan that will be refused anyway.
 - **Tradeoffs:** A plot in the last days of its season gets no 7-day plan, only a shorter one (for example `days=1` on its last day). All four seed plots are out of season for a 7-day plan from 2026-11-21, so the demo needs in-season plots. When weather-service is down, an out-of-season plot gets 409 instead of 503.
+
+## JL-021: Serve a stale forecast for at most 24 hours
+
+- **Date:** 2026-11-21
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** A cached forecast is fresh for 3 hours. After that, weather-service tries the provider again. If the provider fails, FR-2.6 says to serve the last forecast for the cell with `stale: true`. P2 leaves it to the project to decide how old that forecast may be before the service returns 503 instead.
+- **AI recommendation:** 24 hours.
+- **Alternatives:** 12 hours, set aside because it gives more 503s during a long provider outage. 48 hours, set aside because weather data that old is too likely to be wrong.
+- **Decision:** The limit is 24 hours (`FORECAST_MAX_STALE_HOURS`). The service serves stale data only when the provider fails, the cached forecast is no older than 24 hours, and it covers every requested date from today. Otherwise it returns `503 UNAVAILABLE` with `Retry-After`.
+- **Reasoning:** 24 hours balances service availability against the risk of planning irrigation with outdated weather data. The grower sees that the forecast is stale.
+- **Tradeoffs:** If Open-Meteo is down for more than a day, the planner gets no forecast and cannot give a plan. A stale forecast from before local midnight has one day fewer, so a 7-day request can fail while shorter requests still work.
