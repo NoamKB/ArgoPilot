@@ -100,6 +100,32 @@ a non-number are `422` too. Every invalid parameter is listed in `detail`, separ
 
 ## 5. How a request is answered
 
+```mermaid
+sequenceDiagram
+    participant C as Client (planner)
+    participant W as weather-service
+    participant P as Open-Meteo
+
+    C->>W: GET /v1/forecast?lat&lon&days
+    W->>W: find the 0.1° cell in the cache
+    alt fresh (under 3 h) and covers the requested days
+        W-->>C: 200, stale: false (no provider call)
+    else missing, older than 3 h, or too few days left
+        loop 1 attempt + up to 2 retries
+            W->>P: 7 days of ET0 + precipitation for the cell centre
+            P-->>W: forecast, or timeout / error / bad body
+        end
+        alt valid forecast
+            W->>W: store it for the cell
+            W-->>C: 200, stale: false
+        else all attempts failed, cached forecast up to 24 h old covers the days
+            W-->>C: 200, stale: true (cached numbers, original fetched_at)
+        else all attempts failed, no usable cached forecast
+            W-->>C: 503 UNAVAILABLE, Retry-After: 60
+        end
+    end
+```
+
 - **Grid cell (FR-2.5):** a point belongs to the cell `floor(lat × 10), floor(lon × 10)`. All points in a cell
   share one forecast, which is fetched for the cell's centre (31.25, 34.79 → cell 31.2–31.3 × 34.7–34.8 → centre
   31.25, 34.75). The calculation uses the number as written (`Decimal(str(lat))`), so 31.3 is in the 31.3 cell,
