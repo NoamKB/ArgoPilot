@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-answer.md says the out-of-season behaviour is undecided and needs a decision instead of inventing one
+No 409 answer includes plan days, litres, run_minutes or a Kc value

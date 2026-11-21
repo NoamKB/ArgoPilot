@@ -5,4 +5,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Skill, Write, Bash]
 ---
 
-Work out today's irrigation recommendation (2026-11-20) for the AgroPilot seed plot North block: tomato planted 2026-03-01, area 1000 m2, loam (available_water_mm_per_m 175), rows 1.5 m apart, emitters every 0.4 m at 1.0 L/h. Today's ET0 is 4.0 mm with no rain. Write answer.md with your recommendation, and answer.json with keys kc, litres, run_minutes (use null for any value you decide not to give).
+Today is 2026-11-22. For each AgroPilot plan request below, say what `GET /v1/plots/{id}/plan?days=N` should return: the HTTP status and, for an error, the JSON body. (a) Seed plot North block, tomato planted 2026-03-01, days=7. (b) Seed plot Greenhouse, bell pepper planted 2026-05-01, days=7. (c) The same Greenhouse plot, days=5. (d) A tomato plot planted 2026-11-25, days=7. (e) A tomato plot planted 2026-11-22, days=7. Write answer.json with keys a to e, each an object with "status" and, for an error, "code" and "detail"; for a normal plan give only "status". Explain each answer in answer.md, including the day numbers that decide it.

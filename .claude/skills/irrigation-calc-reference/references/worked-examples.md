@@ -92,7 +92,7 @@ start = 47.425    ETc 6.9    47.425 − 6.9 = 40.525 ≥ 29.05 → end 40.525
 
 # Boundary cases for engine tests
 
-Computed with exact fractions on 2026-11-21, not by hand. Each case targets a spot where float arithmetic gives a wrong answer. Engine tests must reproduce every API value.
+Computed with exact fractions on 2026-11-21, not by hand. B1–B5 target spots where float arithmetic gives a wrong answer, and B6 covers the growing-season check. Engine tests must reproduce every API value.
 
 ## B1: a day that ends at exactly half (no irrigation)
 
@@ -152,3 +152,19 @@ A float engine gives 9187 L and 661 min.
 | `Fraction("661.5")` | 0 | 662 |
 | `Fraction("86.8775")` | 3 | 86.878 |
 | `Fraction("86.8774")` | 3 | 86.877 |
+
+## B6: growing-season boundaries
+
+Tomato planted 2026-06-01 (season day 180 = 2026-11-27) and bell pepper planted 2026-12-01.
+
+| Plot | Today | days | First / last day (i) | Response |
+|---|---|---|---|---|
+| tomato | 2026-11-21 | 7 | 174 / 180 | 200, normal plan (the last day is the last season day) |
+| tomato | 2026-11-22 | 7 | 175 / 181 | 409 `PLOT_OUT_OF_SEASON` (the plan runs past the season) |
+| tomato | 2026-11-22 | 6 | 175 / 180 | 200, normal plan |
+| tomato | 2026-11-27 | 1 | 180 / 180 | 200, normal plan |
+| tomato | 2026-11-28 | 1 | 181 / 181 | 409 `PLOT_OUT_OF_SEASON` (past the season) |
+| pepper | 2026-11-30 | 7 | 0 / 6 | 409 `PLOT_OUT_OF_SEASON` (not planted yet) |
+| pepper | 2026-12-01 | 7 | 1 / 7 | 200, normal plan (the planting day is day 1) |
+
+A 409 body is always `{"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}`, with no plan days.

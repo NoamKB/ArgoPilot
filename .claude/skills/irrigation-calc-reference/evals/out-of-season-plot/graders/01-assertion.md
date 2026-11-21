@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-answer.md identifies that the plot is past the end of its growing season (day 265 of a 180-day tomato season)
+Requests a, b and d return status 409 with code PLOT_OUT_OF_SEASON and detail "The plot is outside its growing season."

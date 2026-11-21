@@ -13,7 +13,7 @@ Each rule is tagged with its source:
 - **[Project]**: a decision we made.
 - **[Units]**: unit arithmetic.
 
-Three cases calculated by hand, plus boundary cases for rounding and the threshold, are in [references/worked-examples.md](references/worked-examples.md). Engine tests must reproduce all of them exactly.
+Three cases calculated by hand, plus boundary cases for rounding, the threshold and the growing season, are in [references/worked-examples.md](references/worked-examples.md). Engine tests must reproduce all of them exactly.
 
 ## Inputs and units
 
@@ -51,7 +51,24 @@ i = (date − planting_date).days + 1        # the planting day is day 1  [Proje
 | Mid-season | 81–150 / 71–180 | Kc mid |
 | Late season | 151–180 / 181–210 | Kc mid + (i − L_ini − L_dev − L_mid) / L_late × (Kc end − Kc mid) |
 
-**Outside the season (i > 180 for tomato, i > 210 for pepper): OPEN DECISION.** Do not hold Kc end, do not return 0, and do not extend the curve. The behaviour has not been decided yet. Ask before implementing anything for this case.
+## Plots outside the growing season [Project]
+
+A plan covers `days` days starting today (FR-2.9), so check its first and last day:
+
+```
+i_first = (today − planting_date).days + 1
+i_last  = i_first + days − 1
+if i_first < 1 or i_last > season_length:        # season_length: tomato 180, pepper 210
+    → HTTP 409  {"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}
+```
+
+- This covers a plot that is not planted yet, a plot past its season, and a plan that runs past the season's last day.
+- Reject the whole request. Never return a partial plan, and never invent a Kc for those days: no held Kc end, no 0, no extended curve.
+- The planting day itself (i = 1) and the last season day (i = 180 or 210) are inside the season.
+- A plot near the end of its season can still get a shorter plan. For example, `days=1` works on its last day.
+- The check needs only the plot, today and `days`, not the forecast.
+
+Boundary cases are in worked-examples.md, B6.
 
 ## One day of the soil bucket
 
