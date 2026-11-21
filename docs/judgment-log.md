@@ -111,3 +111,102 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** Keep the precedence and fallback rule. At startup, log the backend and target through uvicorn's logger, with the password and query string hidden.
 - **Reasoning:** One simple, predictable rule, made visible to the operator without changing behavior.
 - **Tradeoffs:** The log only reports a misconfiguration and doesn't prevent it; someone has to read it. A startup check that fails on an invalid URL is deferred.
+
+## JL-011: Start every plan with a full soil bucket
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** The plan needs a soil water level for this morning, but AgroPilot has no soil moisture measurement and no irrigation history.
+- **AI recommendation:** Start with a full bucket, and document that this is not a measured value.
+- **Alternatives:** Start at half (the 50 % threshold), set aside because it is just as much a guess and would make most plans irrigate on day 1 only because of the starting value. Simulate the bucket from the planting date, rejected because weather-service gives only forecast days (FR-2.3), not past rain and irrigation.
+- **Decision:** Every plan starts with a full bucket (bucket level = TAW). This is our assumption, not something FAO-56 or the spec requires.
+- **Reasoning:** Both starting points are guesses, but a full bucket gives a clear, repeatable plan that can be checked by hand. The spec's own example (a 70 mm bucket that reaches half after 5 days) also starts full.
+- **Tradeoffs:** If the soil is actually dry, the plan can say "no irrigation" when the field needs water. The plan does not replace checking the soil.
+
+## JL-012: Refill the bucket to full when irrigating
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** When the bucket would drop below half, the plan has to decide how much water to give.
+- **AI recommendation:** Refill the bucket to full, as in the FAO-56 scheduling example (Annex 8).
+- **Alternatives:** Give back only that day's crop water use (ETc), rejected because the bucket then stays just above half and the plan irrigates almost every day. A target between half and full, set aside because it adds another value to choose.
+- **Decision:** On an irrigation day, add the water the bucket is missing (TAW minus the start level) at the start of the day, up to the daily cap (JL-014).
+- **Reasoning:** The plan is easy to follow: the bucket fills, drains for a few days, and fills again, which shows why the plan does not irrigate every day.
+- **Tradeoffs:** Each irrigation is bigger and longer, and with low flow a full refill may not fit in one day (JL-014).
+
+## JL-013: Decide irrigation from today's forecast, at the start of the day
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** The model works in whole days, so it needs a rule for when rain and irrigation count, and whether to irrigate before or after the bucket crosses half.
+- **AI recommendation:** Check whether the bucket would end today below half without irrigation; if so, irrigate at the start of the day.
+- **Alternatives:** Decide from yesterday's end level and irrigate the next day, as FAO-56 Annex 8 does, rejected because the bucket can drop below half before the irrigation.
+- **Decision:** Rain and irrigation are added at the start of the day, and water above a full bucket is lost. Irrigation is decided from today's forecast, before the day's ETc is taken out.
+- **Reasoning:** The plan acts before the bucket drops below half, instead of finding out afterwards that water was missing.
+- **Tradeoffs:** A daily model, not hourly: evening rain counts in the morning, irrigation is assumed possible at the start of every day, and the forecast is treated as certain. If forecast rain does not come, the plan may have skipped a needed irrigation.
+
+## JL-014: Cap irrigation at 24 hours a day
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** In hand case 3 (the seed plot West block values), refilling the bucket on day 6 needed 1,701 minutes, but a day has only 1,440.
+- **AI recommendation:** Show that the run is not possible, or split the irrigation over several days.
+- **Alternatives:** Return 1,701 minutes as a theoretical value, rejected because no day is that long. Split the irrigation over several days automatically, rejected because it adds a more complex scheduling mechanism.
+- **Decision:** Limit irrigation to 1,440 minutes a day, and limit the litres and millimetres to match. The bucket is updated with the water the plan can deliver within that limit, and nothing carries over to the next day.
+- **Reasoning:** A plan cannot ask for more than a day of irrigation in one day, and it must not show a full bucket that the system cannot fill.
+- **Tradeoffs:** The bucket may be only partly refilled: in case 3 it ends day 6 at 47.425 mm instead of 51.775. The 24-hour limit is a model limit, not a practical schedule to run. The planner does not measure what was really applied, and there is no hourly scheduling or warning when the cap is hit.
+
+## JL-015: Add in-season demo plots through the API; keep the seed data unchanged
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** On 2026-11-20, three of the four seed plots were past the end of their growing season, and the fourth (Greenhouse, pepper, day 204 of 210) leaves it within a week, so the seed plots cannot show a normal in-season plan.
+- **AI recommendation:** Keep using the final Kc after the season ends, so the seed plots still show irrigation numbers. A separate suggestion was to add in-season demo plots through `POST /v1/plots`.
+- **Alternatives:** Keep the final Kc after the season, or return zero irrigation after harvest; both rejected. Change the seed planting dates, rejected because FR-2.2 requires loading the same 15 seed rows.
+- **Decision:** Demonstrate the plan with plots planted inside their growing season, added through the API. The seed data stays unchanged. What the planner returns for out-of-season plots is still an open decision.
+- **Reasoning:** The demo shows Kc from real growth stages instead of a value invented for plots after harvest, and the seed data still matches FR-2.2.
+- **Tradeoffs:** Demo plots must be added before a demo on a new database. Until the open decision is made, the planner has no defined answer for out-of-season plots.
+
+## JL-016: Fixed crop profiles for tomato and bell pepper
+
+- **Date:** 2026-11-21
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** FAO-56 gives several stage-length rows per crop for different regions and planting months (Table 11), a range for tomato's end-of-season Kc (0.70–0.90, Table 12), and a range of root depths (Table 22). The spec does not say which values to use.
+- **AI recommendation:** One fixed profile per crop: the "Arid Region" stage lengths (tomato 35/45/70/30 days, pepper 30/40/110/30), tomato Kc end 0.80, and fixed root depths of 0.7 m for tomato and 0.5 m for pepper.
+- **Alternatives:** The Mediterranean rows, set aside because they fit spring planting and give shorter seasons. Choosing the row by planting month, rejected because it adds a lookup rule and edge cases, such as months with no row.
+- **Decision:** Use these values for every plot, whatever its location or planting month. Tomato Kc end 0.80 is the middle of FAO's range, the root depths are the smallest values in FAO's ranges, and pepper's Kc values (0.60 / 1.05 / 0.90) come straight from Table 12. These are deliberate P2 simplifications based on FAO-56 reference values, not values that are correct for every location or season.
+- **Reasoning:** One fixed, documented profile per crop keeps the P2 engine simple and testable, and every value can be traced to a FAO-56 table.
+- **Tradeoffs:** A plot planted in another season gets stage lengths that may not match its real growth. A fixed root depth gives young plants a bigger bucket than their roots really reach. The root depth also moves the irrigation day: on the sand plot in the `half-up-ties` eval, 0.7 m first irrigates on day 6 and 0.8 m on day 7.
+
+## JL-017: Single crop coefficient without climate adjustment
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** FAO-56 recommends the dual crop coefficient for drip irrigation (Table 10), but weather-service returns only ET0 and rain (FR-2.3).
+- **AI recommendation:** Use the single Kc from Table 12, without FAO's climate adjustments.
+- **Alternatives:** The dual Kc, rejected because it needs wind speed and humidity, which would extend weather-service beyond FR-2.3.
+- **Decision:** The engine uses the unadjusted single Kc from Table 12, changing in a straight line between growth stages (Eq. 66).
+- **Reasoning:** It works with the data the system has, matches the spec's own example (Kc 1.15), and is easy to explain.
+- **Tradeoffs:** Less accurate for drip than the dual Kc, mostly early in the season, when much of the water loss is evaporation from wet soil.
+
+## JL-018: Round only the API output, with .5 rounding up
+
+- **Date:** 2026-11-20
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** The calculation produces values like 248.4 minutes and Kc 0.99833…, and the spec does not say how to round them.
+- **AI recommendation:** Whole minutes and litres with .5 rounding up, `kc` to 2 decimals, and millimetre values (`et0_mm` and the bucket level) to 1 decimal.
+- **Alternatives:** Round only `run_minutes` and return the other values unrounded; not chosen.
+- **Decision:** Keep full precision in the calculation and round only the API output, with .5 always rounding up: `run_minutes` and `litres` to whole numbers, `kc` and `bucket_level_mm` to 3 decimals. `et0_mm` is returned exactly as weather-service sent it. The 1,440-minute cap is applied before rounding, and a rounded value is never used in a later calculation.
+- **Reasoning:** Rounded values fed back into the bucket would add a small error every day. Three decimals show the hand-calculated values unchanged, such as Kc 0.825 and a bucket level of 47.425 mm, which 2 and 1 decimals would show as 0.83 and 47.4.
+- **Tradeoffs:** Python's `round()` cannot be used, because it rounds .5 to the even number (`round(2.5)` is 2), so the engine needs its own small rounding helper.
+
+## JL-019: Calculate with exact fractions instead of floats
+
+- **Date:** 2026-11-21
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** A skill eval found a rounding bug: Kc for pepper on day 32 is exactly 0.6225 and should round up to 0.623, but a float stores it as 0.62249999…, which rounds down to 0.622. The same problem can make a day that ends at exactly half look slightly below half, so the plan irrigates when it should not.
+- **AI recommendation:** First, round floats to 9 decimals before the output rounding. After tests showed this still failed for large values such as litres on big plots, the recommendation changed to exact fractions with Python's `fractions.Fraction`.
+- **Alternatives:** Rounding floats to 12 significant digits, set aside because it passed the tests but depends on a chosen precision limit. `Decimal` for every calculation, which can work with a defined precision rule, set aside because every division (such as 1000 / 0.6) must then be rounded to that precision, and the rule has to be chosen and tested.
+- **Decision:** The engine converts every input once with `Fraction(str(value))` and does all calculations with exact fractions. The 50 % threshold check is exact, with no tolerance, and values are rounded (.5 up) only for the API output.
+- **Reasoning:** Fractions give exactly the hand-calculated numbers, with no precision setting to manage, and the code still reads like normal arithmetic.
+- **Tradeoffs:** One float mixed into the calculation, such as `0.5 * taw`, silently brings the float errors back, so inputs are converted in one place and a test checks that the results are fractions. Fractions are slower than floats, which does not matter for a 7-day plan.
