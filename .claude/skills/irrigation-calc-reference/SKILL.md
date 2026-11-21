@@ -53,7 +53,7 @@ i = (date − planting_date).days + 1        # the planting day is day 1  [Proje
 
 ## Plots outside the growing season [Project]
 
-A plan covers `days` days starting today (FR-2.9), so check its first and last day:
+A plan covers `days` days starting today (FR-2.9), so check its first and last day. `today` is the field's local date, which is the forecast's first date:
 
 ```
 i_first = (today − planting_date).days + 1
@@ -66,8 +66,13 @@ if i_first < 1 or i_last > season_length:        # season_length: tomato 180, pe
 - Reject the whole request. Never return a partial plan, and never invent a Kc for those days: no held Kc end, no 0, no extended curve.
 - The planting day itself (i = 1) and the last season day (i = 180 or 210) are inside the season.
 - A plot near the end of its season can still get a shorter plan. For example, `days=1` works on its last day.
-- The check needs only the plot, today and `days`, not the forecast.
-- Order in the planner: read the plot from registry-service → season check → request the forecast from weather-service. An out-of-season plot gets 409 without a weather call, even when weather-service is down (JL-020).
+- Before the forecast, the planner knows only its own UTC date d. UTC offsets run from −12 h to +14 h, so the field's today is d − 1, d or d + 1. The early check rejects only when the plan is out of season for all three.
+- Order in the planner:
+  1. Read the plot from registry-service.
+  2. Run the early check.
+  3. Request the forecast from weather-service.
+  4. Run the same check on the forecast's first date. It decides the remaining cases.
+- A plot that is clearly out of season gets 409 without a weather call, even when weather-service is down (JL-020). A plot within a day of a season boundary needs the forecast first. If weather-service is down then, the answer is 503, never a 409 based on a date the field isn't on.
 
 Boundary cases are in worked-examples.md, B6.
 
@@ -145,4 +150,5 @@ For values ≥ 0 this is exactly `ROUND_HALF_UP`, and every rounded field is ≥
 | `litres` | whole litres (from `applied_l`) |
 | `kc` | 3 decimals |
 | `bucket_level_mm` (`end`) | 3 decimals |
+| `taw_mm`, `threshold_mm` | 3 decimals |
 | `et0_mm` | as received from weather-service, unchanged |

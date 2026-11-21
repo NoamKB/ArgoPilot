@@ -16,7 +16,9 @@ flow      = 1,666.666… × 1.0              = 1,666.666… L/h
 run time  = 6,900 / 1,666.666… = 4.14 h   = 248.4 min
 ```
 
-**API:** kc 1.150, litres 6900, run_minutes 248. These match the spec's example table.
+**Rounded values (not a plan output):** kc 1.150, one day's ETc 6,900 L = 248 run minutes. These match the spec's example table.
+
+A daily plan returns litres only on an irrigation day, sized to refill the bucket (SKILL.md step 3), so it does not return these numbers for a single day. Tests check them with the ETc, flow and run-time steps on their own.
 
 ## Case 2: bell pepper, development stage (Kc interpolation)
 
@@ -155,7 +157,7 @@ A float engine gives 9187 L and 661 min.
 
 ## B6: growing-season boundaries
 
-Tomato planted 2026-06-01 (season day 180 = 2026-11-27) and bell pepper planted 2026-12-01.
+Tomato planted 2026-06-01 (season day 180 = 2026-11-27) and bell pepper planted 2026-12-01. "Today" is the field's local date (the forecast's first date).
 
 | Plot | Today | days | First / last day (i) | Response |
 |---|---|---|---|---|
