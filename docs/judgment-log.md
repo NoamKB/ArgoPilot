@@ -210,3 +210,14 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** The engine converts every input once with `Fraction(str(value))` and does all calculations with exact fractions. The 50 % threshold check is exact, with no tolerance, and values are rounded (.5 up) only for the API output.
 - **Reasoning:** Fractions give exactly the hand-calculated numbers, with no precision setting to manage, and the code still reads like normal arithmetic.
 - **Tradeoffs:** One float mixed into the calculation, such as `0.5 * taw`, silently brings the float errors back, so inputs are converted in one place and a test checks that the results are fractions. Fractions are slower than floats, which does not matter for a 7-day plan.
+
+## JL-020: Reject out-of-season plans with 409 PLOT_OUT_OF_SEASON
+
+- **Date:** 2026-11-21
+- **Assignment:** P2 — Weather, planner, and the daily plan
+- **Context:** FAO-56 gives Kc values only from planting to the end of the season (tomato 180 days, pepper 210 days). A plan covers today to today + days − 1, so it can start before planting or run past the season's last day. The P2 specification does not say what the planner should do then.
+- **AI recommendation:** None. The rule came from the user.
+- **Alternatives:** Inventing a Kc for the days outside the season (keeping the last Kc, using 0, or extending the curve), set aside because those numbers would not come from FAO-56.
+- **Decision:** If the first plan day is before planting or the last plan day is past the season, the planner rejects the whole request with `409` and the body `{"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}`. The check runs after the plot is read from registry-service and before the forecast is requested from weather-service.
+- **Reasoning:** The request itself is valid; the problem is the plot's current state, which is what 409 means. Any plan for those days would contain invented numbers. A specific code lets the frontend show the grower a clear message. Checking before the weather call avoids a call for a plan that will be refused anyway.
+- **Tradeoffs:** A plot in the last days of its season gets no 7-day plan, only a shorter one (for example `days=1` on its last day). All four seed plots are out of season for a 7-day plan from 2026-11-21, so the demo needs in-season plots. When weather-service is down, an out-of-season plot gets 409 instead of 503.
