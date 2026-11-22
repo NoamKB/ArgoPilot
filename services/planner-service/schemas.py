@@ -20,5 +20,6 @@ class Plan(BaseModel):
     crop_id: str
     taw_mm: float
     threshold_mm: float
+    initial_soil_water_pct: int  # the assumed (not measured) soil water this morning; 100 unless simulated
     forecast_fetched_at: datetime
     days: list[PlanDay]

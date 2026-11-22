@@ -170,3 +170,24 @@ Tomato planted 2026-06-01 (season day 180 = 2026-11-27) and bell pepper planted 
 | pepper | 2026-12-01 | 7 | 1 / 7 | 200, normal plan (the planting day is day 1) |
 
 A 409 body is always `{"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}`, with no plan days.
+
+## B7: Case 3 starting half full (`initial_soil_water_pct=50`, a simulation)
+
+Computed with exact fractions on 2026-11-21; day 1 also by hand. Same plot and weather as Case 3 (TAW 58.1 mm, threshold 29.05 mm, daily cap 36,000 L = 24 mm). Only the start changes: 50 % of 58.1 = 29.05 mm.
+
+```
+day 1: start = min(29.05 + 0, 58.1) = 29.05   ETc 6.9   29.05 − 6.9 = 22.15 < 29.05 → irrigate
+       desired = 58.1 − 29.05 = 29.05 mm = 43,575 L → capped at 36,000 L = 24 mm, 1,440 min
+       end = 29.05 + 24 − 6.9 = 46.15
+day 5: start 31.6   ETc 6.9   31.6 − 6.9 = 24.7 < 29.05 → desired 26.5 mm = 39,750 L → capped, end 48.7
+```
+
+**API:**
+
+| Day | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| litres | 36000 | 0 | 0 | 0 | 36000 | 0 | 0 |
+| run_minutes | 1440 | 0 | 0 | 0 | 1440 | 0 | 0 |
+| bucket_level_mm | 46.150 | 39.250 | 38.500 | 31.600 | 48.700 | 42.375 | 35.475 |
+
+kc is 1.150 every day. `initial_soil_water_pct=100` gives exactly Case 3, and `0` waters on day 1 at the cap and ends it at 17.100 (0 + 24 − 6.9).

@@ -1,10 +1,14 @@
 import { StaleBadge } from "@/components/stale-badge";
+import { Badge } from "@/components/ui/badge";
 import { wholeNumber } from "@/lib/format";
 import type { Plan } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** FR-2.16: today's recommendation first, big and clear. */
-export function TodayPanel({ plan }: { plan: Plan }) {
+/**
+ * FR-2.16: today's recommendation first, big and clear.
+ * simulated: the starting soil level was chosen by the user, not the default assumption.
+ */
+export function TodayPanel({ plan, simulated = false }: { plan: Plan; simulated?: boolean }) {
   const today = plan.days[0];
   const water = today.run_minutes > 0;
 
@@ -18,7 +22,10 @@ export function TodayPanel({ plan }: { plan: Plan }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className={cn("text-sm", water ? "text-water-foreground/85" : "text-muted-foreground")}>Today</p>
-        {today.stale && <StaleBadge onDark={water} />}
+        <div className="flex flex-wrap gap-1.5">
+          {simulated && <Badge className="border-transparent bg-white text-foreground">Simulation</Badge>}
+          {today.stale && <StaleBadge onDark={water} />}
+        </div>
       </div>
 
       {water ? (
@@ -40,7 +47,20 @@ export function TodayPanel({ plan }: { plan: Plan }) {
       )}
 
       <SoilBar plan={plan} onDark={water} />
+      <StartingLevel plan={plan} simulated={simulated} onDark={water} />
     </section>
+  );
+}
+
+/** Always says which starting soil level the plan assumed: the default or the user's simulation value. */
+function StartingLevel({ plan, simulated, onDark }: { plan: Plan; simulated: boolean; onDark: boolean }) {
+  const pct = plan.initial_soil_water_pct ?? 100;
+  return (
+    <p className={cn("mt-1 text-sm", onDark ? "text-water-foreground/85" : "text-muted-foreground")}>
+      {simulated
+        ? `Assumes the soil starts today at ${pct}%. Your simulation value, not a measurement.`
+        : `Assumes the soil starts today full (${pct}%). Default assumption, not a measurement.`}
+    </p>
   );
 }
 

@@ -32,6 +32,8 @@ export type Plan = {
   crop_id: string;
   taw_mm: number;
   threshold_mm: number;
+  /** The assumed soil water at the start of today, % of taw_mm. Missing from a planner without simulation support. */
+  initial_soil_water_pct?: number;
   forecast_fetched_at: string;
   days: PlanDay[];
 };

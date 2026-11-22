@@ -8,7 +8,7 @@ From those it calculates a day-by-day irrigation plan for 1 to 7 days, starting 
 
 | Route | Purpose |
 | --- | --- |
-| `GET /v1/plots/{id}/plan?days={days}` | The irrigation plan of a plot (`days` 1 to 7, default 7) |
+| `GET /v1/plots/{id}/plan?days={days}` | The irrigation plan of a plot (`days` 1 to 7, default 7). Optional `initial_soil_water_pct` (0–100) simulates another starting soil level |
 | `GET /health` | `{"status": "ok"}` |
 
 - Every number in the plan comes from the engine (`engine.py`), calculated exactly as written in the
@@ -71,6 +71,7 @@ get `409`.)
   "crop_id": "tomato",
   "taw_mm": 58.1,
   "threshold_mm": 29.05,
+  "initial_soil_water_pct": 100,
   "forecast_fetched_at": "2026-11-21T06:00:00Z",
   "days": [
     { "date": "2026-11-21", "et0_mm": 6.0, "rain_mm": 0.0, "kc": 1.15, "litres": 0,     "run_minutes": 0,    "bucket_level_mm": 51.2,   "stale": false },
@@ -92,6 +93,7 @@ get `409`.)
 | `crop_id` | The crop growing on the plot |
 | `taw_mm` | How much water the soil around the roots can hold for the crop when it is full |
 | `threshold_mm` | Half of `taw_mm`. If the soil would drop below this during a day, the plan waters that day |
+| `initial_soil_water_pct` | How full the soil is assumed to be at the start of today, as a % of `taw_mm`. 100 unless a simulation was asked for. Always an assumption, never a measurement |
 | `forecast_fetched_at` | When the weather forecast behind this plan was downloaded (UTC time) |
 | `days` | One row per day, starting today |
 | `date` | The day this row is about. The first row is today at the plot |
@@ -108,11 +110,24 @@ All water amounts are in mm. 1 mm of water over 1 m² is 1 litre.
 **A stale forecast** (FR-2.13): when weather-service answers with an older cached forecast, the plan is still
 calculated, every day has `"stale": true`, and `forecast_fetched_at` shows how old the forecast is.
 
+**A simulated starting soil level** (optional): the planner has no soil measurement, so every plan starts from an
+assumed level. By default the soil is full this morning (JL-011). `initial_soil_water_pct` (a whole number from 0 to
+100) lets you try another start, for example:
+
+```bash
+curl 'http://127.0.0.1:8002/v1/plots/<plot id>/plan?initial_soil_water_pct=50' | jq .
+```
+
+Only the starting level changes. The bucket size, the half-full line, the refill to full and the 24-hour cap stay the
+same. A low start makes today a watering day, often at the 24-hour cap. Treat those numbers as a simulation, not a
+field-verified recommendation. The response echoes the value in `initial_soil_water_pct`. Leaving the parameter out
+gives exactly the same plan as before.
+
 **Errors:**
 
 | Status | Body | When |
 | --- | --- | --- |
-| `422` | `{"code": "VALIDATION", "detail": "days: Input should be less than or equal to 7"}` | `days` is not a whole number from 1 to 7, or the id is not a UUID. No other service is called. |
+| `422` | `{"code": "VALIDATION", "detail": "days: Input should be less than or equal to 7"}` | `days` is not a whole number from 1 to 7, `initial_soil_water_pct` is not a whole number from 0 to 100, or the id is not a UUID. No other service is called. |
 | `404` | `{"code": "NOT_FOUND", "detail": "Plot not found."}` | registry-service has no plot with this id |
 | `409` | `{"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}` | A plan day is before planting or after the season's last day (tomato 180 days, pepper 210). No partial plan. |
 | `503` | `{"code": "UPSTREAM_UNAVAILABLE", "detail": "weather-service is unavailable or did not answer in time."}` | A service is down, too slow, or gave an unusable answer. The detail names `registry-service` or `weather-service`. |
@@ -200,8 +215,8 @@ The full rules, with sources and worked examples, are in the
 is [`docs/research/fao56.md`](docs/research/fao56.md). In short, for each day:
 
 1. **Kc** from the days since planting (the planting day is day 1) and the crop's FAO-56 stages.
-2. **The bucket** starts the plan full: `taw_mm` = soil water per metre × root depth. Rain is added at the start of
-   the day, up to full.
+2. **The bucket** starts the plan full, or at `initial_soil_water_pct` of full in a simulation: `taw_mm` = soil water
+   per metre × root depth. Rain is added at the start of the day, up to full.
 3. **The crop's water use** that day is Kc × ET0. If the bucket would end the day below `threshold_mm`, the plan
    refills it to full. That water is limited to 24 hours of the drip system's flow.
 4. **Litres** = mm × area. **Run minutes** = litres ÷ (emitters × flow per emitter) × 60. The number of emitters is

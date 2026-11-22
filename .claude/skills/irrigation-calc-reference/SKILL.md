@@ -24,6 +24,7 @@ Three cases calculated by hand, plus boundary cases for rounding, the threshold 
 | `available_water_mm_per_m` = 1000 × (θFC − θWP) | mm of water per m of soil | registry soil |
 | `flow_lph` | L/h per emitter | registry emitter |
 | `et0_mm`, `rain_mm` per date | mm/day | weather-service |
+| `initial_soil_water_pct` (optional, whole number 0–100, default 100) | % of TAW this morning | the user: a simulation, not a measurement [Project] |
 
 ## Crop values [FAO], single Kc, no climate adjustment [Project]
 
@@ -88,7 +89,8 @@ threshold = TAW / 2                              # "below half → irrigate" [P2
 For each plan day, in this order (today is day 1):
 
 ```
-1. start = min(prev_end + rain_mm, TAW)          # day 1: prev_end = TAW, bucket full this morning [Project]
+1. start = min(prev_end + rain_mm, TAW)          # day 1: prev_end = TAW × initial_soil_water_pct / 100
+                                                 #   default 100: bucket full this morning (JL-011) [Project]
                                                  # rain arrives at the start of the day, before ETc [Project]
                                                  # rain above TAW is lost (deep percolation)  [FAO Eq. 86, 88]
 2. etc   = kc × et0_mm                           # [FAO Eq. 56]
@@ -106,6 +108,7 @@ For each plan day, in this order (today is day 1):
 ```
 
 Why each rule exists:
+- **The starting level (step 1):** the planner has no soil measurement and no history, so the level this morning is always an assumption. By default it is full (JL-011). The optional `initial_soil_water_pct` lets a user simulate another start. It only changes `prev_end` on day 1: TAW, the threshold, the refill and the cap stay the same. A low start makes day 1 irrigate at once, often at the 24 h cap (B7). Those numbers are a simulation, not a field-verified recommendation.
 - **Rain at the start of the day (step 1):** a project simplification. The model is daily, not hourly, so rain that really falls in the evening is still counted in the morning.
 - **Exact comparison (step 3):** the engine calculates with exact fractions (see "Exact arithmetic"), so a day that should end at exactly half really ends at exactly half. No tolerance is needed. With floats it doesn't: in boundary case B1 a float engine irrigates on a day that ends at exactly half.
 - **Same-day look-ahead (step 3):** we irrigate before the bucket falls below half. Annex 8 instead decides from the previous day's end; the look-ahead is our choice.

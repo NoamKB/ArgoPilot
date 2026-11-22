@@ -33,6 +33,7 @@ def test_plan_reproduces_case_3_end_to_end(client):
         "crop_id": "tomato",
         "taw_mm": 58.1,
         "threshold_mm": 29.05,
+        "initial_soil_water_pct": 100,
         "forecast_fetched_at": FETCHED_AT,
         "days": [
             {
@@ -81,6 +82,60 @@ def test_et0_and_rain_are_shown_as_weather_service_sent_them(client, weather):
     day = client.get(URL, params={"days": 1}).json()["days"][0]
 
     assert (day["et0_mm"], day["rain_mm"]) == (3.13, 0.1)
+
+
+# --- Optional starting soil water (simulation) ---
+
+# Worked example B7: Case 3's plot and weather, starting half full.
+B7 = [
+    (1.15, 36000, 1440, 46.15),
+    (1.15, 0, 0, 39.25),
+    (1.15, 0, 0, 38.5),
+    (1.15, 0, 0, 31.6),
+    (1.15, 36000, 1440, 48.7),
+    (1.15, 0, 0, 42.375),
+    (1.15, 0, 0, 35.475),
+]
+
+
+def rows(response) -> list[tuple]:
+    return [(d["kc"], d["litres"], d["run_minutes"], d["bucket_level_mm"]) for d in response.json()["days"]]
+
+
+def test_without_the_parameter_the_bucket_starts_full(client):
+    response = client.get(URL)
+
+    assert response.json()["initial_soil_water_pct"] == 100
+    assert rows(response) == CASE_3
+
+
+def test_100_percent_is_the_same_plan_as_the_default(client):
+    assert rows(client.get(URL, params={"initial_soil_water_pct": 100})) == CASE_3
+
+
+def test_starting_half_full_reproduces_b7(client):
+    response = client.get(URL, params={"initial_soil_water_pct": 50})
+
+    assert response.status_code == 200
+    assert response.json()["initial_soil_water_pct"] == 50
+    assert rows(response) == B7
+
+
+def test_starting_empty_waters_on_day_1_within_the_daily_cap(client):
+    response = client.get(URL, params={"initial_soil_water_pct": 0})
+
+    day_1 = response.json()["days"][0]
+    assert (day_1["litres"], day_1["run_minutes"], day_1["bucket_level_mm"]) == (36000, 1440, 17.1)
+
+
+@pytest.mark.parametrize("value", ["-1", "101", "abc", "50.5", ""])
+def test_bad_starting_soil_water_is_422_and_calls_no_service(client, registry, weather, value):
+    response = client.get(URL, params={"initial_soil_water_pct": value})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION"
+    assert response.json()["detail"].startswith("initial_soil_water_pct: ")
+    assert registry.requests == [] and weather.requests == []
 
 
 # --- 422 VALIDATION ---

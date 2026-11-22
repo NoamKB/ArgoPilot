@@ -267,6 +267,69 @@ def test_season_lengths():
     assert PEPPER.season_length == 210
 
 
+# --- B7: the optional starting soil water (a simulation, not a measurement). ---
+
+CASE_3_ET0 = ["6.0", "6.0", "5.0", "6.0", "6.0", "5.5", "6.0"]
+CASE_3_RAIN = ["0", "0", "5", "0", "0", "0", "0"]
+
+
+def case_3_plan(initial_fraction=None) -> engine.PlanResult:
+    first_day = date(2026, 11, 21)
+    west_block = plot("tomato", first_day - timedelta(days=99), awc="83", area="1500", flow="0.6")
+    days = weather(first_day, CASE_3_ET0, CASE_3_RAIN)
+    if initial_fraction is None:
+        return engine.plan_days(west_block, days)
+    return engine.plan_days(west_block, days, initial_fraction)
+
+
+def test_full_start_is_the_default():
+    assert api_rows(case_3_plan(Fraction(1))) == api_rows(case_3_plan())
+
+
+def test_b7_case_3_starting_half_full():
+    result = case_3_plan(Fraction(1, 2))
+
+    assert result.taw_mm == F("58.1")  # the bucket size and the threshold don't change
+    assert result.threshold_mm == F("29.05")
+    assert result.days[0].bucket_level_mm == F("46.15")  # 29.05 + 24 (capped) - 6.9
+    assert api_rows(result) == [
+        (1.15, 36000, 1440, 46.15),
+        (1.15, 0, 0, 39.25),
+        (1.15, 0, 0, 38.5),
+        (1.15, 0, 0, 31.6),
+        (1.15, 36000, 1440, 48.7),
+        (1.15, 0, 0, 42.375),
+        (1.15, 0, 0, 35.475),
+    ]
+
+
+def test_empty_start_waters_on_day_1_but_never_past_the_daily_cap():
+    day_1 = case_3_plan(Fraction(0)).days[0]
+
+    assert day_1.litres == 36000  # wants 58.1 mm = 87,150 L
+    assert day_1.run_minutes == 1440
+    assert day_1.bucket_level_mm == F("17.1")  # 0 + 24 - 6.9
+
+
+def test_rain_on_day_1_still_cannot_overfill_a_simulated_start():
+    sand = plot("tomato", date(2026, 8, 14), awc="83", area="1500", flow="0.6")
+
+    result = engine.plan_days(sand, weather(date(2026, 11, 21), ["1.0"], ["50"]), Fraction(1, 2))
+
+    assert result.days[0].bucket_level_mm == F("58.1") - F("1.15")
+
+
+@pytest.mark.parametrize("bad", [Fraction(-1, 100), Fraction(101, 100)])
+def test_starting_fraction_outside_0_to_1_is_an_error(bad):
+    with pytest.raises(ValueError, match="initial_fraction must be from 0 to 1"):
+        case_3_plan(bad)
+
+
+def test_float_starting_fraction_is_rejected():
+    with pytest.raises(ValueError, match="initial_fraction must be a Fraction"):
+        case_3_plan(0.5)
+
+
 # --- Exact arithmetic and invalid inputs. ---
 
 

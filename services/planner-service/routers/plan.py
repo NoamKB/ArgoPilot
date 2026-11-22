@@ -1,4 +1,5 @@
 from datetime import UTC, date, datetime
+from fractions import Fraction
 from typing import Annotated
 from uuid import UUID
 
@@ -23,6 +24,8 @@ def get_plan(
     plot_id: UUID,
     today: Annotated[date, Depends(utc_today)],
     days: Annotated[int, Query(ge=1, le=7)] = 7,
+    # Optional simulation: the soil water this morning as a whole percentage of a full bucket. 100 = JL-011 default.
+    initial_soil_water_pct: Annotated[int, Query(ge=0, le=100)] = 100,
 ):
     settings = request.app.state.settings
     registry = request.app.state.registry_client
@@ -53,6 +56,7 @@ def get_plan(
             flow_lph_per_emitter=emitter_flow,
         ),
         forecast.days,
+        initial_fraction=Fraction(initial_soil_water_pct, 100),
     )
 
     # 5. Round for the output only (SKILL.md "Rounding").
@@ -61,6 +65,7 @@ def get_plan(
         crop_id=plot.crop_id,
         taw_mm=float(round_half_up(result.taw_mm, 3)),
         threshold_mm=float(round_half_up(result.threshold_mm, 3)),
+        initial_soil_water_pct=initial_soil_water_pct,
         forecast_fetched_at=forecast.fetched_at,
         days=[
             PlanDay(

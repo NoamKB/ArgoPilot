@@ -5,12 +5,19 @@ import type { Plan, PlanResult } from "@/lib/types";
 // Longer than the planner's own worst case: registry calls (3 s each) plus weather-service (12 s).
 const TIMEOUT_MS = 25_000;
 
-/** The 7-day plan of a plot, or the planner's error passed through (FR-2.18). */
-export async function getPlan(plotId: string): Promise<PlanResult> {
+/**
+ * The 7-day plan of a plot, or the planner's error passed through (FR-2.18).
+ * initialSoilWaterPct (0-100) asks the planner to simulate another starting soil level; leave it out for the default.
+ */
+export async function getPlan(plotId: string, initialSoilWaterPct?: number): Promise<PlanResult> {
   const base = await serviceUrl("planner");
+  const query = new URLSearchParams({ days: "7" });
+  if (initialSoilWaterPct !== undefined) {
+    query.set("initial_soil_water_pct", String(initialSoilWaterPct));
+  }
   let response: Response;
   try {
-    response = await fetch(`${base}/v1/plots/${encodeURIComponent(plotId)}/plan?days=7`, {
+    response = await fetch(`${base}/v1/plots/${encodeURIComponent(plotId)}/plan?${query}`, {
       cache: "no-store",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });

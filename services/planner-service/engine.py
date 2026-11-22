@@ -159,12 +159,15 @@ def run_minutes_for(litres: Fraction, system_flow: Fraction) -> Fraction:
 # --- The soil bucket, day by day [FAO Ch. 8; SKILL.md "One day of the soil bucket"] ---
 
 
-def plan_days(plot: PlotInputs, forecast: list[WeatherDay]) -> PlanResult:
-    """The plan for the forecast's days. The bucket is full this morning (JL-011).
+def plan_days(plot: PlotInputs, forecast: list[WeatherDay], initial_fraction: Fraction = Fraction(1)) -> PlanResult:
+    """The plan for the forecast's days.
 
+    initial_fraction is the share of the bucket that is full this morning, from 0 to 1. The default, a full
+    bucket, is the JL-011 assumption; any other value is a user's simulation. Neither is a measurement.
     Raises OutOfSeason if any day is outside the season, ValueError for an invalid input. Never treats one as 0.
     """
     check_inputs(plot, forecast)
+    check_initial_fraction(initial_fraction)
     crop = crop_profile(plot.crop_id)
     check_season(crop, plot.planting_date, forecast[0].date, len(forecast))
 
@@ -174,7 +177,7 @@ def plan_days(plot: PlotInputs, forecast: list[WeatherDay]) -> PlanResult:
     daily_cap_l = flow * DAILY_CAP_HOURS
 
     days = []
-    previous_end = taw
+    previous_end = taw * initial_fraction  # the bucket this morning, before today's rain
     for day in forecast:
         kc = kc_on(crop, plot.planting_date, day.date)
         # 1. Rain counts at the start of the day; water above a full bucket is lost.
@@ -218,6 +221,12 @@ def check_inputs(plot: PlotInputs, forecast: list[WeatherDay]) -> None:
                 raise ValueError(f"{name} must be >= 0 on {day.date}")
         if day.date != forecast[0].date + timedelta(days=n):
             raise ValueError("forecast days must be consecutive")
+
+
+def check_initial_fraction(initial_fraction) -> None:
+    value = require_fraction("initial_fraction", initial_fraction)
+    if not 0 <= value <= 1:
+        raise ValueError(f"initial_fraction must be from 0 to 1, got {value}")
 
 
 def require_fraction(name: str, value) -> Fraction:
