@@ -376,6 +376,7 @@ def engine_view(run: dict) -> dict:
             "rain_mm": show(v["day"].rain_mm),
             "values": {name: show(v[name]) for name, _ in LOOP} | {"run_minutes": show(run_minutes[n])},
             "derived": {"without_irrigation_mm": show(without_irrigation), "desired_l": show(desired_l),
+                        "below_threshold": without_irrigation < setup_state["threshold"],
                         "capped": desired_l > setup_state["daily_cap_l"]},
             "lines": day["lines"],
         })
@@ -412,9 +413,29 @@ def run_calc_cases(planner: Planner) -> list[dict]:
             check(rows[0] == START_EMPTY_DAY_1, f"case {key}: day 1 is {rows[0]}, expected {START_EMPTY_DAY_1}")
         if key == "b2":
             check([r[1] for r in rows[:6]] == [0] * 6 and rows[6] == B2_DAY_7, f"case b2: {rows}")
+        view = engine_view(run)
+        plot = next(call["body"] for call in run["calls"] if call["name"] == "plot")
+        planted = date.fromisoformat(plot["planting_date"])
+        # Each day's number in the season, from the engine's own day_number (the planting day is day 1).
+        for day in view["days"]:
+            day["season_day"] = engine.day_number(planted, date.fromisoformat(day["date"]))
         results.append({"key": key, "source": c["source"], "request": run["request"], "inputs": run["calls"],
-                        "plan": run["response"]["body"], **engine_view(run)})
+                        "crop_id": plot["crop_id"], "input_values": input_values(run, plot),
+                        "plan": run["response"]["body"], **view})
     return results
+
+
+def input_values(run: dict, plot: dict) -> dict:
+    """The value of each steps.INPUT_FIELDS field in this run, as text: from the fake answers, the crop profile and the plan."""
+    bodies = {call["name"]: call["body"] for call in run["calls"]}
+    values = {**plot, **bodies["soil"], **bodies["emitter"],
+              "root_depth_m": show(engine.CROPS[plot["crop_id"]].root_depth_m),
+              "initial_soil_water_pct": run["response"]["body"]["initial_soil_water_pct"]}
+    out = {}
+    for field, *_ in steps.INPUT_FIELDS:
+        check(field in values, f"input field {field} not found in the run")
+        out[field] = str(values.get(field, ""))
+    return out
 
 
 def run_season_rows(planner: Planner) -> list[dict]:
@@ -446,8 +467,10 @@ def direct_examples() -> dict:
     litres = etc * F("1000")  # 1 mm over 1 m² is 1 L
     minutes = engine.run_minutes_for(litres, flow)
     check((kc, etc, litres, engine.round_half_up(minutes, 0)) == (F("1.15"), F("6.9"), 6900, 248), "Case 1 differs")
-    case_1 = {"kc": show(kc), "etc_mm": show(etc), "flow_lph": show(flow), "litres": show(litres),
-              "run_minutes": show(minutes), "run_minutes_api": int(engine.round_half_up(minutes, 0))}
+    case_1 = {"kc": show(kc), "etc_mm": show(etc), "flow_lph_total": show(flow), "litres": show(litres),
+              "run_minutes": show(minutes), "run_minutes_api": int(engine.round_half_up(minutes, 0)),
+              # The inputs above, as text for the page's substitutions.
+              "et0_mm": "6.0", "area_m2": "1000", "row_spacing_m": "1.5", "emitter_spacing_m": "0.4", "flow_lph": "1.0", "season_day": 100}
 
     # Case 2 and B3: Kc in pepper's development stage.
     kc_2 = engine.kc_on(pepper, date(2026, 10, 1), date(2026, 11, 19))
@@ -473,6 +496,10 @@ def direct_examples() -> dict:
         planted = date(2026, 1, 1)  # any date: Kc depends only on the season day
         curves[crop_id] = {
             "stages": {"ini": crop.l_ini, "dev": crop.l_dev, "mid": crop.l_mid, "late": crop.l_late},
+            # First and last season day of each stage, as in SKILL.md's Kc table (the planting day is day 1).
+            "stage_days": {"ini": [1, crop.l_ini], "dev": [crop.l_ini + 1, crop.l_ini + crop.l_dev],
+                           "mid": [crop.l_ini + crop.l_dev + 1, crop.l_ini + crop.l_dev + crop.l_mid],
+                           "late": [crop.l_ini + crop.l_dev + crop.l_mid + 1, crop.season_length]},
             "kc_ini": show(crop.kc_ini), "kc_mid": show(crop.kc_mid), "kc_end": show(crop.kc_end),
             "root_depth_m": show(crop.root_depth_m),
             "kc_by_day": [show(engine.kc_on(crop, planted, planted + timedelta(days=i))) for i in range(crop.season_length)],
@@ -595,6 +622,55 @@ def resolve_step(run: dict, key: str) -> dict:
     return out
 
 
+CALC_RESULTS: dict = {}  # filled in main(): the calculation cases and the direct examples, for calc_content's checks
+
+
+def calc_content() -> dict:
+    """The calculation explorer's texts, checked: predictions against the engine, lines against engine.py."""
+    cases = {c["key"]: c for c in CALC_RESULTS["cases"]}
+    kc_examples = {k["source"]: k for k in CALC_RESULTS["kc_examples"]}
+    for q in steps.PREDICTIONS:
+        where = f"prediction {q['id']}"
+        check(sum(1 for o in q["options"] if o.get("correct")) == 1, f"{where}: exactly one option must be correct")
+        chk = q["check"]
+        if "case" in q:
+            day = cases.get(q["case"], {}).get("plan", {}).get("days", [{}] * 7)[q["day"] - 1]
+            check(day.get(chk["field"]) == chk["equals"], f"{where}: the engine says {chk['field']} = {day.get(chk['field'])}, not {chk['equals']}")
+        else:
+            got = kc_examples.get(q["kc_example"], {}).get(chk["field"])
+            check(got == chk["equals"], f"{where}: the engine says {got}, not {chk['equals']}")
+    for s in steps.LIMITS:
+        check(s.get("example") in (None, "first_irrigation", "cap"), f"limit {s['title']}: unknown example")
+    def card(c: dict, where: str) -> dict:
+        out = {**c, "text": with_terms(c["text"], where)}
+        for field in ("assume", "risk", "why", "question"):
+            if c.get(field):
+                out[field] = with_terms(c[field], where)
+        if "line" in c:
+            out["line"] = line_of(ENGINE, c["line"])
+        return out
+    return {
+        "intro": with_terms(steps.CALC_INTRO, "calc intro"),
+        "sections": steps.CALC_SECTIONS,
+        "case_labels": steps.CASE_LABELS,
+        "setup_cards": [card(c, f"setup {c['key']}") for c in steps.SETUP_CARDS],
+        "day_steps": [card(c, f"day step {c['key']}") for c in steps.DAY_STEPS],
+        "predictions": [{**q, "question": with_terms(q["question"], q["id"]),
+                         "options": [{**o, "why": with_terms(o["why"], q["id"])} for o in q["options"]]} for q in steps.PREDICTIONS],
+        "limits": [card(s, f"limit {s['title']}") for s in steps.LIMITS],
+        "float_notes": steps.FLOAT_NOTES,
+        "etc_intro": with_terms(steps.ETC_INTRO, "etc intro"),
+        "etc_cards": [card(c, f"etc card {c['key']}") for c in steps.ETC_CARDS],
+        "kc_intro": with_terms(steps.KC_INTRO, "kc intro"),
+        "kc_card": card(steps.KC_CARD, "kc card"),
+        "stage_names": steps.STAGE_NAMES,
+        "season_text": with_terms(steps.SEASON_TEXT, "season text"),
+        "rounding_text": with_terms(steps.ROUNDING_TEXT, "rounding text"),
+        "input_fields": steps.INPUT_FIELDS,
+        "examples_file": steps.EXAMPLES,
+    }
+
+
 def learning_content(scenarios: list[dict]) -> dict:
     """steps.py, checked against the traces, the views and the source files, with glossary markup applied."""
     by_key = {s["key"]: s for s in scenarios}
@@ -652,6 +728,8 @@ def learning_content(scenarios: list[dict]) -> dict:
             else:
                 check(stop["stage"] > steps.CURRENT_STAGE, f"{where}: stage {stop['stage']} is already built; remove it")
             check(stop.get("service") in (None, *steps.SERVICES), f"{where}: unknown service")
+            if "section" in stop:
+                check(stop["section"] in [s[0] for s in steps.CALC_SECTIONS], f"{where}: unknown calc section {stop['section']}")
             if "step" in stop:
                 check(stop["step"] in steps.WALKTHROUGH.get(stop.get("scenario"), []), f"{where}: step {stop['step']} is not in its scenario")
             if "scenario" not in stop:
@@ -662,7 +740,9 @@ def learning_content(scenarios: list[dict]) -> dict:
             if run and target:  # the function must really run in that scenario
                 found = any(f["file"] == target["file"] and f["function"] == target["function"] for f in run["frames"])
                 check(found, f"{where}: {target['function']} does not run in scenario {stop['scenario']}")
+    calc = calc_content()
     return {
+        "calc": calc,
         "current_stage": steps.CURRENT_STAGE,
         "intro": with_terms(steps.WALKTHROUGH_INTRO, "walkthrough intro"),
         "lanes": steps.LANES,
@@ -706,6 +786,7 @@ def main() -> None:
         cases = run_calc_cases(planner)
         season = run_season_rows(planner)
     direct = direct_examples()
+    CALC_RESULTS.update({"cases": cases, **direct})
     learning = learning_content(scenarios)
     stop_if_problems()
 

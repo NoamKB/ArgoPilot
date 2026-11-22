@@ -335,6 +335,84 @@ body:not(.explorer) .flowgrid { grid-template-columns: minmax(0, 1fr); }
 .wobs .ret { font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; overflow-wrap: anywhere; }
 .v-authored { color: var(--s-units); background: var(--s-units-bg); border: 1px solid var(--s-units); }
 @media (max-width: 960px) { .wgrid { grid-template-columns: minmax(0, 1fr); } }
+/* ---- the calculation explorer ---- */
+.cnav { display: flex; flex-wrap: wrap; gap: 6px; }
+.cnav a { font-size: 13.5px; color: var(--fg); text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; }
+.cnav a:hover { border-color: var(--blue); }
+.cpick { padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.cpick .row1 { display: flex; flex-wrap: wrap; gap: 8px; }
+.cpick .row1 button { font-size: 14px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; text-align: start; }
+.cpick .row1 button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); background: var(--panel); font-weight: 600; }
+.cpick .about { margin: 0; color: var(--muted); }
+.cpick .start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.cpick .start input { flex: 1 1 200px; max-width: 420px; accent-color: var(--blue); direction: ltr; }
+.cpick .start b { font-family: var(--mono); }
+.csec { scroll-margin-top: 80px; }
+.csec > h2 { font-size: 15px; }
+.csec .body { display: flex; flex-direction: column; gap: 12px; }
+.csec .body > p { margin: 0; }
+.fgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.fcard { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.fcard h4 { margin: 0; font-size: 1.02em; }
+.fcard p { margin: 0; }
+.formula, .subst { font-family: var(--mono); font-size: 13px; direction: ltr; text-align: left; unicode-bidi: isolate; overflow-wrap: anywhere; border-radius: 6px; padding: 5px 8px; }
+.formula { background: var(--panel-2); border: 1px solid var(--line); font-weight: 600; }
+.subst { background: var(--cur-bg); }
+.tv { border-bottom: 2px solid var(--ok); }
+.dv { border-bottom: 2px dashed var(--v-derived); }
+.units { font-size: 13px; color: var(--muted); }
+.assume { font-size: 14px; padding: 6px 10px; border-radius: 7px; background: var(--panel-2); border-inline-start: 3px solid var(--s-project); }
+.vkey { font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.vkey .tv, .vkey .dv { padding: 0 2px; }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.tbl table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+.tbl th, .tbl td { padding: 5px 8px; border-bottom: 1px solid var(--line); text-align: start; white-space: nowrap; }
+.tbl th { background: var(--panel-2); font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.tbl td.n { font-family: var(--mono); direction: ltr; text-align: left; }
+.tbl tr.irr td { background: var(--blue-bg); }
+.tbl tr.sel td { box-shadow: inset 0 2px 0 var(--cur), inset 0 -2px 0 var(--cur); }
+.tbl tbody tr { cursor: pointer; }
+/* Charts keep a readable size: at most 860 px wide, at least 540 px (narrower screens scroll the chart, not the page). */
+.chartwrap { overflow-x: auto; direction: ltr; } /* scroll starts at day 1 */
+.chart { width: 100%; max-width: 860px; min-width: 540px; height: auto; display: block; margin: 0 auto; direction: ltr; }
+.chart text { font-family: var(--ui); font-size: 14px; fill: var(--muted); }
+.chart .taw { stroke: var(--ok); stroke-dasharray: 6 4; stroke-width: 1.5; }
+.chart .thr { stroke: var(--err); stroke-dasharray: 6 4; stroke-width: 1.5; }
+.chart .bar { fill: var(--s-fao); opacity: 0.85; }
+.chart .bar.sel { fill: var(--cur); opacity: 1; }
+.chart .irr { fill: var(--blue); }
+.chart .start { fill: var(--fg); }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .kc { fill: none; stroke: var(--blue); stroke-width: 2.5; }
+.chart .band { opacity: 0.5; }
+.chart .mark { fill: var(--cur); opacity: 0.35; }
+.legend2 { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--muted); }
+.legend2 i { display: inline-block; width: 16px; height: 0; border-top: 2px dashed; vertical-align: middle; margin-inline-end: 4px; }
+.legend2 i.box { height: 10px; border: 0; }
+.daypick, .steppick { display: flex; flex-wrap: wrap; gap: 6px; }
+.daypick button, .steppick button { font-size: 13.5px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; cursor: pointer; }
+.daypick button.irr { border-color: var(--blue); color: var(--blue); }
+.daypick button[aria-pressed="true"], .steppick button[aria-pressed="true"] { background: var(--cur-bg); border-color: var(--cur); color: var(--fg); font-weight: 600; }
+.apirow { font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.apirow .n { font-family: var(--mono); }
+.quiz { border: 2px solid var(--blue); border-radius: 10px; padding: 12px 14px; background: var(--blue-bg); display: flex; flex-direction: column; gap: 8px; }
+.quiz h4 { margin: 0; }
+.quiz p { margin: 0; }
+.quiz .opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.quiz .opts button { font-size: 14px; color: var(--fg); background: var(--panel); border: 1.5px solid var(--line); border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+.quiz .opts button.right { border-color: var(--ok); background: var(--ok-bg); }
+.quiz .opts button.wrong { border-color: var(--err); background: var(--err-bg); }
+.quiz .fb { padding: 8px 10px; border-radius: 8px; background: var(--panel); }
+.quiz .fb.right { border-inline-start: 4px solid var(--ok); }
+.quiz .fb.wrong { border-inline-start: 4px solid var(--err); }
+.quiz .skip { align-self: flex-start; font-size: 12.5px; color: var(--muted); background: none; border: 0; text-decoration: underline; cursor: pointer; padding: 0; }
+.veiled .subst, .veiled .apirow { filter: blur(6px); user-select: none; }
+.limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.limit { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; background: var(--panel); }
+.limit h4 { margin: 0; }
+.limit p { margin: 0; }
+.limit .risk { color: var(--err); }
+.limit .ex { font-size: 13.5px; padding: 6px 10px; border-radius: 7px; background: var(--panel-2); }
 @media (max-width: 760px) {
   .map { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "browser ." "next registry" "planner db" "weather ." "openmeteo ."; gap: 50px 34px; padding: 14px 8px; }
   .box .ds { font-size: 12.5px; }

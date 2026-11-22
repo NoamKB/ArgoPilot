@@ -67,7 +67,7 @@ GLOSSARY = {
 }
 
 # The increment that is built now. A view or stop with a later `stage` says so on the page instead of inventing content.
-CURRENT_STAGE = 4
+CURRENT_STAGE = 5
 
 VIEWS = {
     "map": {"label": "ארכיטקטורה", "stage": 3},
@@ -117,14 +117,14 @@ PATHS = {
         "label": "מתכנן וחישובים",
         "stops": [
             {"title": "המנוע מתחיל: plan_days", "view": "flow", "scenario": "plan", "step": "engine"},
-            {"title": "הקלטים ומאיפה הם מגיעים", "view": "calc", "stage": 5},
-            {"title": "Kc ושלבי הגדילה", "view": "calc", "stage": 5},
-            {"title": "ETc: כמה הגידול שותה היום", "view": "calc", "stage": 5},
-            {"title": "TAW והסף: גודל הדלי וחציו", "view": "calc", "stage": 5},
-            {"title": "יום אחד בדלי, חמישה צעדים", "view": "calc", "stage": 5},
-            {"title": "שבעה ימים, והתקרה של 24 שעות", "view": "calc", "stage": 5},
-            {"title": "עיגול בסוף בלבד, ולמה Fraction", "view": "calc", "stage": 5},
-            {"title": "מה המודל לא יודע", "view": "calc", "stage": 5},
+            {"title": "הקלטים ומאיפה הם מגיעים", "view": "calc", "section": "inputs"},
+            {"title": "Kc ושלבי הגדילה", "view": "calc", "section": "kc"},
+            {"title": "ETc: כמה הגידול שותה היום", "view": "calc", "section": "etc"},
+            {"title": "TAW והסף: גודל הדלי וחציו", "view": "calc", "section": "taw"},
+            {"title": "יום אחד בדלי, צעד אחר צעד", "view": "calc", "section": "day"},
+            {"title": "שבעה ימים, והתקרה של 24 שעות", "view": "calc", "section": "week"},
+            {"title": "עיגול בסוף בלבד, ולמה Fraction", "view": "calc", "section": "rounding"},
+            {"title": "מה המודל לא יודע", "view": "calc", "section": "limits"},
         ],
     },
 }
@@ -698,3 +698,195 @@ WALKTHROUGH = {
     "weather-bad-field": ["intro", "fastapi", "settings", "plot", "plot_ok", "early", "catalog", "forecast_bad", "handler_503", "front_err"],
 }
 
+# --- The calculation explorer (Increment 5) ---
+# Every number on this view comes from the engine run in build_explorer.py (traced values) or from the build's
+# few `derived` explanation values. The texts below only say which formula, unit, source and assumption apply.
+# Sources: [FAO] fao56.md, [P2] the spec, [Project] the judgment log, [Units] unit arithmetic (SKILL.md tags).
+SKILL = ".claude/skills/irrigation-calc-reference/SKILL.md"
+EXAMPLES = ".claude/skills/irrigation-calc-reference/references/worked-examples.md"
+
+CALC_SECTIONS = [
+    ["inputs", "הקלטים"], ["kc", "Kc ועונת הגידול"], ["etc", "ETc"], ["taw", "TAW והסף"],
+    ["day", "יום אחד בדלי"], ["week", "שבעה ימים"], ["rounding", "עיגול ו-Fraction"], ["limits", "מה המודל לא יודע"],
+]
+
+CALC_INTRO = (
+    "כאן רואים איך המנוע הופך נתוני חלקה ותחזית לליטרים ולדקות. כל מספר הוא הערך שהמנוע האמיתי חישב בריצה, "
+    "בדיוק מלא (Fraction); המספר המעוגל הוא מה שה-API מחזיר. הנוסחאות כתובות כמו ב-<code>irrigation-calc-reference</code>, "
+    "ולכל אחת יש מקור: P2, FAO-56, החלטה שלנו, או חשבון יחידות."
+)
+
+# The cases come from build_explorer.py CALC_CASES (worked-examples.md). Case 3 also has starting levels 0-100 %.
+CASE_LABELS = {
+    "case3": {"title": "Case 3: עגבנייה על חול, 7 ימים", "text": "החלקה West block מה-seed: אמצע העונה, גשם ביום 3, והתקרה של 24 שעות ביום 6."},
+    "b1": {"title": "B1: יום שמסתיים בדיוק בחצי", "text": "ביום 7 הדלי מגיע בדיוק לסף, 31.5 מ\"מ. \"מתחת לחצי\" פירושו מתחת ממש, ולכן לא משקים."},
+    "b2": {"title": "B2: קצת מתחת לחצי", "text": "אותה חלקה, ET0 של 7.501 במקום 7.5: ביום 7 הדלי יורד קצת מתחת לסף, ומשקים."},
+    "b4": {"title": "B4: פלפל, עיגול של חצאים", "text": "ביום 6 הליטרים והדקות יוצאים בדיוק .5, ומעוגלים כלפי מעלה: 9188 ליטר, 662 דקות."},
+}
+
+# The bucket set-up: one card per value. {name} placeholders are filled from the run's own numbers.
+SETUP_CARDS = [
+    {"key": "taw", "title": "TAW: גודל הדלי",
+     "formula": "TAW = available_water_mm_per_m × Zr", "sub": "{awc} × {zr} = {taw}", "units": "מ\"מ למטר × מטר = מ\"מ",
+     "text": "כמה מים אזור השורשים מחזיק כשהוא מלא: המים הזמינים בכל מטר של הקרקע, כפול עומק השורשים.",
+     "assume": "עומק השורשים קבוע לכל העונה: הערך הקטן מהטווח של FAO (Table 22). צמח צעיר מקבל דלי גדול מהשורשים שיש לו באמת.",
+     "badges": [["fao", "Eq. 82"], ["project", "JL-016"]], "line": "taw = plot.available_water_mm_per_m * crop.root_depth_m"},
+    {"key": "threshold", "title": "הסף: חצי דלי",
+     "formula": "threshold = TAW / 2", "sub": "{taw} / 2 = {threshold}", "units": "מ\"מ",
+     "text": "אם הדלי היה יורד מתחת לסף עד סוף היום, משקים באותו יום.",
+     "assume": "זה ה-50% של P2, לא ה-p של FAO (Table 22: 0.40 לעגבנייה, 0.30 לפלפל). לפי FAO, עקה יכולה להתחיל קצת לפני הסף.",
+     "badges": [["p2", ""]], "line": "threshold = taw / 2"},
+    {"key": "emitters", "title": "כמה טפטפות בחלקה",
+     "formula": "emitters = area_m2 / (row_spacing_m × emitter_spacing_m)", "sub": "{area} / ({row} × {spacing}) = {emitters}", "units": "מ\"ר / (מ × מ) = טפטפות",
+     "text": "כל טפטפת \"מכסה\" מלבן של מרווח בין שורות כפול מרווח בין טפטפות.",
+     "assume": "הערכת צפיפות, בלי עיגול: גם חלק של טפטפת נשאר בחישוב.",
+     "badges": [["units", ""]], "line": "emitters = area_m2 / (row_spacing_m * emitter_spacing_m)"},
+    {"key": "flow", "title": "ספיקת המערכת",
+     "formula": "flow = emitters × flow_lph", "sub": "{emitters} × {flow_lph} = {flow}", "units": "טפטפות × ליטר לשעה = ליטר לשעה",
+     "text": "כמה ליטרים בשעה כל החלקה מקבלת כשהמערכת פתוחה.",
+     "assume": "", "badges": [["units", ""]], "line": "return emitters * flow_lph"},
+    {"key": "daily_cap_l", "title": "התקרה היומית",
+     "formula": "daily_cap_l = flow × 24", "sub": "{flow} × 24 = {daily_cap_l}", "units": "ליטר לשעה × שעות = ליטר",
+     "text": "מערכת טפטוף לא יכולה לרוץ יותר מ-24 שעות ביום, ולכן אף יום לא מקבל יותר מזה.",
+     "assume": "התוכנית לא מזהירה כשמגיעים לתקרה, ולא מעבירה את החוסר ליום הבא.",
+     "badges": [["project", "JL-014"]], "line": "daily_cap_l = flow * DAILY_CAP_HOURS"},
+]
+
+# One day of the bucket, in the engine's order. {name} placeholders come from that day's real values.
+DAY_STEPS = [
+    {"key": "kc", "title": "Kc של היום", "var": "kc",
+     "formula": "kc = kc_on(crop, planting_date, date)", "sub": "i = {season_day} → kc = {kc}", "units": "בלי יחידות",
+     "text": "מקדם הגידול לפי היום בעונה. בעקומה שבחלק \"Kc ועונת הגידול\" רואים באיזה שלב היום הזה נמצא.",
+     "badges": [["fao", "Eq. 66"], ["project", "JL-017"]]},
+    {"key": "start", "title": "הדלי בבוקר, אחרי הגשם", "var": "start",
+     "formula": "start = min(prev_end + rain_mm, TAW)", "sub": "min({prev_end} + {rain_mm}, {taw}) = {start}", "units": "מ\"מ",
+     "text": "מתחילים מהמפלס של סוף אתמול (ביום 1: ההנחה על הבוקר) ומוסיפים את הגשם. מים מעל דלי מלא הולכים לאיבוד.",
+     "badges": [["project", "JL-013"], ["fao", "Eq. 86"]]},
+    {"key": "etc", "title": "כמה הגידול שותה היום (ETc)", "var": "etc",
+     "formula": "ETc = Kc × ET0", "sub": "{kc} × {et0_mm} = {etc}", "units": "בלי יחידות × מ\"מ = מ\"מ",
+     "text": "ET0 הוא האידוי של דשא סטנדרטי. Kc מתאים אותו לגידול ולשלב שלו.",
+     "badges": [["fao", "Eq. 56"]]},
+    {"key": "decision", "title": "האם משקים?", "var": "desired_mm",
+     "formula": "אם start − ETc < threshold: desired_mm = TAW − start, אחרת 0",
+     "sub": "{start} − {etc} = {without_irrigation_mm} {compare} {threshold} → desired_mm = {desired_mm}", "units": "מ\"מ",
+     "text": "בודקים לאן הדלי היה מגיע בסוף היום בלי השקיה. רק אם מתחת לסף ממש, ממלאים אותו עד הסוף בתחילת היום.",
+     "badges": [["p2", ""], ["project", "JL-012"], ["project", "JL-013"]], "derived": ["without_irrigation_mm"]},
+    {"key": "litres", "title": "ליטרים ודקות, עד התקרה", "var": "applied_l",
+     "formula": "applied_l = min(desired_mm × area_m2, daily_cap_l) · run_minutes = applied_l / flow × 60",
+     "sub": "min({desired_l}, {daily_cap_l}) = {applied_l} L · {applied_l} / {flow} × 60 = {run_minutes} min", "units": "מ\"מ × מ\"ר = ליטר",
+     "text": "מילימטר אחד על מטר רבוע הוא ליטר אחד. אם המילוי צריך יותר מ-24 שעות, נותנים רק את מה שנכנס ביום.",
+     "badges": [["units", ""], ["project", "JL-014"]], "derived": ["desired_l"]},
+    {"key": "end", "title": "הדלי בסוף היום", "var": "end",
+     "formula": "end = max(start + applied_mm − ETc, 0)", "sub": "max({start} + {applied_mm} − {etc}, 0) = {end}", "units": "מ\"מ",
+     "text": "המים שהיו, ועוד ההשקיה, פחות מה שהגידול שתה. זה המפלס שממנו מתחיל מחר.",
+     "badges": [["fao", "Eq. 86"]]},
+]
+
+# Predict before you see the result. `check` is verified by build_explorer.py against the engine's API value.
+PREDICTIONS = [
+    {"id": "day6", "case": "case3-start-100", "day": 6,
+     "question": "ביום 5 הדלי נגמר ב-29.75 מ\"מ, והסף הוא 29.05. ביום 6 ה-ETc הוא 6.325. משקים ביום 6?",
+     "options": [{"text": "כן", "correct": True, "why": "29.75 − 6.325 = 23.425, מתחת לסף. לכן ממלאים את הדלי כבר בתחילת היום."},
+                 {"text": "לא", "why": "הדלי עדיין מעל הסף בבוקר, אבל ההחלטה היא לפי סוף היום: 29.75 − 6.325 = 23.425, וזה מתחת ל-29.05."}],
+     "check": {"field": "litres", "equals": 36000}},
+    {"id": "minutes6", "case": "case3-start-100", "day": 6,
+     "question": "למלא את הדלי ביום 6 צריך 28.35 מ\"מ, כלומר 42,525 ליטר. המערכת נותנת 1,500 ליטר בשעה. כמה דקות יופיעו בתוכנית?",
+     "options": [{"text": "1440", "correct": True, "why": "42,525 ליטר דורשים 1,701 דקות, אבל ביום יש רק 1,440. מקבלים 36,000 ליטר, והדלי מתמלא רק בחלקו."},
+                 {"text": "1701", "why": "זה הזמן בלי התקרה. אין יום של 1,701 דקות, ולכן התוכנית מגבילה ל-24 שעות (JL-014)."},
+                 {"text": "248", "why": "248 דקות הן המים של ETc של יום אחד בדוגמה של המפרט (Case 1), לא מילוי של הדלי."}],
+     "check": {"field": "run_minutes", "equals": 1440}},
+    {"id": "b1day7", "case": "b1", "day": 7,
+     "question": "ביום 7 ב-B1 הדלי היה מסתיים בדיוק ב-31.5 מ\"מ, שזה בדיוק הסף. משקים?",
+     "options": [{"text": "לא", "correct": True, "why": "הכלל הוא \"מתחת לחצי\". 31.5 הוא לא מתחת ל-31.5. עם Fraction החישוב מדויק, ולכן זה בדיוק 31.5."},
+                 {"text": "כן", "why": "רק מתחת לסף ממש משקים. מנוע עם float היה מקבל 31.4999… ומשקה בטעות 27,000 ליטר."}],
+     "check": {"field": "litres", "equals": 0}},
+    {"id": "half1", "case": "case3-start-50", "day": 1,
+     "question": "סימולציה: הבוקר הדלי חצי מלא, 29.05 מ\"מ, בדיוק הסף. ETc היום 6.9. מה יקרה ביום 1?",
+     "options": [{"text": "משקים, ובתקרה של 24 שעות", "correct": True, "why": "29.05 − 6.9 = 22.15, מתחת לסף. המילוי (43,575 ליטר) גדול מהתקרה, ולכן נותנים 36,000."},
+                 {"text": "לא משקים", "why": "הבוקר בדיוק בסף זה לא מספיק: ההחלטה לפי סוף היום, ו-22.15 מתחת ל-29.05."},
+                 {"text": "משקים 43,575 ליטר", "why": "זה מה שהיה ממלא את הדלי, אבל המערכת נותנת לכל היותר 36,000 ליטר ביום."}],
+     "check": {"field": "litres", "equals": 36000}},
+    {"id": "b3kc", "kc_example": "B3",
+     "question": "Kc המדויק של פלפל ביום 32 הוא 0.6225. מה יופיע בתשובה, עם 3 ספרות?",
+     "options": [{"text": "0.623", "correct": True, "why": "העיגול הוא half-up: .5 מעוגל כלפי מעלה. עם Fraction המספר הוא בדיוק 0.6225."},
+                 {"text": "0.622", "why": "זה מה ש-float היה נותן: 0.6225 נשמר כ-0.62249999…, וגם <code>round()</code> של פייתון מעגל חצאים לזוגי."}],
+     "check": {"field": "kc_api", "equals": 0.623}},
+]
+
+LIMITS = [
+    {"title": "אין מדידה של הקרקע", "badges": [["project", "JL-011"]],
+     "text": "בבוקר של יום 1 מניחים שהדלי מלא. זו הנחה, לא מדידה.",
+     "risk": "אם הקרקע יבשה, התוכנית יכולה להגיד \"לא להשקות\" כשהשדה צריך מים.",
+     "example": "first_irrigation"},
+    {"title": "Kc יחיד, בלי תיקון לאקלים", "badges": [["project", "JL-017"]],
+     "text": "weather נותן רק ET0 וגשם, ולכן אין רוח ולחות לתיקון של FAO. FAO ממליץ על Kc כפול לטפטוף.",
+     "risk": "פחות מדויק, בעיקר בתחילת העונה, כשהרבה מהמים מתאדים מקרקע רטובה."},
+    {"title": "עומק שורשים ושלבי עונה קבועים", "badges": [["project", "JL-016"]],
+     "text": "אותם ערכים לכל חלקה, בכל מקום ובכל חודש שתילה.",
+     "risk": "צמח צעיר מקבל דלי גדול מהשורשים שלו, וחלקה שנשתלה בעונה אחרת מקבלת שלבים שלא מתאימים לה."},
+    {"title": "סף של 50%, לא ה-p של FAO", "badges": [["p2", ""]],
+     "text": "המפרט אומר להשקות מתחת לחצי. FAO משתמש ב-p של 0.40 לעגבנייה ו-0.30 לפלפל.",
+     "risk": "לפי FAO, עקה יכולה להתחיל עוד לפני שהדלי יורד לחצי."},
+    {"title": "מודל יומי, ותחזית שנחשבת ודאית", "badges": [["project", "JL-013"]],
+     "text": "גשם של הערב נספר בבוקר, ההשקיה מתחילה בתחילת היום, והתחזית נחשבת נכונה.",
+     "risk": "אם הגשם שבתחזית לא ירד, התוכנית אולי דילגה על השקיה שהייתה נחוצה."},
+    {"title": "התקרה של 24 שעות, בלי אזהרה", "badges": [["project", "JL-014"]],
+     "text": "כשהמילוי לא נכנס ביום אחד, הדלי מתמלא רק בחלקו, והחוסר לא עובר למחר.",
+     "risk": "התוכנית לא אומרת שהמערכת קטנה מדי לחלקה.", "example": "cap", "quote": "51.775"},
+    {"title": "מפלס 0: עקת מים", "badges": [["fao", "Eq. 86"]],
+     "text": "אם גם ההשקיה המוגבלת לא מספיקה, הדלי נעצר ב-0.",
+     "risk": "מספרים כאלה אומרים שהגידול בעקה. אסור להציג אותם כבטוחים."},
+    {"title": "בלי מקדם יעילות", "badges": [["p2", ""]],
+     "text": "כל ליטר שהמערכת נותנת נחשב כאילו הגיע לשורשים, כמו בדוגמה של המפרט.",
+     "risk": "במציאות חלק מהמים הולכים לאיבוד, ולכן הדקות יכולות להיות מעט מדי."},
+]
+
+# Where floats go wrong: quoted from worked-examples.md (computed there separately), not computed on this page.
+FLOAT_NOTES = [
+    {"case": "B1", "text": "מנוע עם float מקבל 31.4999… ביום 7 ומשקה 27,000 ליטר (972 דקות), למרות שהדלי מסתיים בדיוק בסף."},
+    {"case": "B3", "text": "float שומר 0.6225 כ-0.6224999…, ולכן העיגול נותן 0.622 במקום 0.623."},
+    {"case": "B4", "text": "float נותן 9187 ליטר ו-661 דקות במקום 9188 ו-662."},
+]
+
+# The inputs table: (field, label, unit, where it comes from). build_explorer.py reads each value from the run.
+INPUT_FIELDS = [
+    ["crop_id", "גידול", "", "registry: החלקה"],
+    ["planting_date", "תאריך שתילה", "", "registry: החלקה"],
+    ["area_m2", "שטח", "מ\"ר", "registry: החלקה"],
+    ["row_spacing_m", "מרווח בין שורות", "מ", "registry: החלקה"],
+    ["emitter_spacing_m", "מרווח בין טפטפות", "מ", "registry: החלקה"],
+    ["available_water_mm_per_m", "מים זמינים בקרקע", "מ\"מ למטר עומק", "registry: הקרקע"],
+    ["flow_lph", "ספיקה של טפטפת", "ליטר לשעה", "registry: הטפטפת"],
+    ["root_depth_m", "עומק שורשים (Zr)", "מ", "פרופיל הגידול במנוע (FAO Table 22)"],
+    ["initial_soil_water_pct", "הדלי בבוקר יום 1", "% מ-TAW", "הבקשה (ברירת מחדל: 100)"],
+]
+
+# Case 1 (the spec's example): how long it takes to give back one day's ETc. Not a bucket decision.
+ETC_INTRO = ("ETc הוא כמה מים הגידול מאבד ביום. Case 1 הוא הדוגמה של המפרט: עגבנייה באמצע העונה, ET0 של 6.0 מ\"מ, 1,000 מ\"ר. "
+             "הוא מראה כמה זמן לוקח להחזיר ETc של יום אחד, ולכן הוא לא החלטה של הדלי: בתוכנית האמיתית משקים רק כשהדלי יורד מתחת לחצי.")
+ETC_CARDS = [
+    {"key": "etc", "title": "ETc", "formula": "ETc = Kc × ET0", "sub": "{kc} × {et0_mm} = {etc_mm}", "units": "בלי יחידות × מ\"מ = מ\"מ",
+     "text": "ET0 של דשא סטנדרטי, כפול מקדם הגידול באותו יום.", "badges": [["fao", "Eq. 56"]], "line": "return kc * et0_mm"},
+    {"key": "litres", "title": "ליטרים", "formula": "litres = ETc × area_m2", "sub": "{etc_mm} × {area_m2} = {litres}", "units": "מ\"מ × מ\"ר = ליטר",
+     "text": "מילימטר מים על מטר רבוע הוא ליטר אחד.", "badges": [["units", ""], ["p2", ""]]},
+    {"key": "flow", "title": "ספיקת המערכת", "formula": "flow = area_m2 / (row_spacing_m × emitter_spacing_m) × flow_lph",
+     "sub": "{area_m2} / ({row_spacing_m} × {emitter_spacing_m}) × {flow_lph} = {flow_lph_total}", "units": "ליטר לשעה",
+     "text": "מספר הטפטפות (הערכה, בלי עיגול) כפול הספיקה של כל אחת.", "badges": [["units", ""]], "line": "return emitters * flow_lph"},
+    {"key": "minutes", "title": "דקות", "formula": "run_minutes = litres / flow × 60", "sub": "{litres} / {flow_lph_total} × 60 = {run_minutes} → {run_minutes_api}",
+     "units": "ליטר / (ליטר לשעה) × 60 = דקות", "text": "בתשובה הדקות מעוגלות למספר שלם, half-up: 248.4 נהיה 248, כמו בטבלה של המפרט.",
+     "badges": [["p2", ""], ["project", "JL-018"]], "line": "return litres / system_flow * 60"},
+]
+
+KC_INTRO = ("Kc תלוי ביום בעונה, כשיום השתילה הוא יום 1. בשלב הראשוני ובאמצע העונה הוא קבוע. בשלב ההתפתחות ובסוף העונה הוא משתנה בקו ישר "
+            "בין הערכים. מחוץ לעונה אין Kc: התוכנית נדחית עם 409, ולא ממציאים ערך.")
+KC_CARD = {"title": "Kc בשלב ההתפתחות", "formula": "Kc = Kc_ini + (i − L_ini) / L_dev × (Kc_mid − Kc_ini)",
+           "sub": "{kc_ini} + ({day} − {l_ini}) / {l_dev} × ({kc_mid} − {kc_ini}) = {kc}", "units": "בלי יחידות",
+           "text": "ערך הביניים בקו ישר בין Kc ההתחלתי ל-Kc של אמצע העונה.", "badges": [["fao", "Eq. 66"], ["project", "JL-016"]],
+           "line": "return crop.kc_ini + Fraction(i - crop.l_ini, crop.l_dev) * (crop.kc_mid - crop.kc_ini)"}
+STAGE_NAMES = {"ini": "התחלתי", "dev": "התפתחות", "mid": "אמצע העונה", "late": "סוף העונה"}
+SEASON_TEXT = ("תוכנית מכסה את <code>days</code> הימים שמתחילים היום, ולכן בודקים את היום הראשון ואת האחרון. "
+               "לפני התחזית ה-planner יודע רק את התאריך שלו ב-UTC, והוא דוחה מיד רק אם התוכנית מחוץ לעונה בכל שלושת התאריכים האפשריים. "
+               "בטבלה כל השורות קרובות לגבול העונה, ולכן weather נשאל בכולן, וההחלטה היא לפי התאריך הראשון בתחזית (JL-020).")
+ROUNDING_TEXT = ("המנוע מחשב הכול בדיוק מלא, ורק התשובה מעוגלת: ליטרים ודקות למספר שלם, Kc ומפלס הדלי ל-3 ספרות. "
+                 "העיגול הוא half-up, .5 כלפי מעלה, ולא <code>round()</code> של פייתון שמעגל חצאים למספר הזוגי. "
+                 "ערך מעוגל אף פעם לא חוזר לחישוב (JL-018).")

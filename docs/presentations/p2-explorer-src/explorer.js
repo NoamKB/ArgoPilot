@@ -101,7 +101,11 @@ function openBadge(el) {
   if (kind === "project" && L.jl_lines[ref]) action = '<button type="button" data-open="docs/judgment-log.md" data-line="' + L.jl_lines[ref] + '">פתיחת ' + esc(ref) + " ביומן ההחלטות</button>";
   if (kind === "fao") {
     const path = "services/planner-service/docs/research/fao56.md";
-    action = '<button type="button" data-open="' + path + '" data-line="' + findLine(path, ref || "#") + '">פתיחה ב-fao56.md</button>';
+    // Prefer the line where the equation itself is written ("ETc = Kc × ETo  (Ch. 5, Eq. 56)") over a passing mention.
+    const lines = FILES[path] || [];
+    const formula = ref ? lines.findIndex((l) => l.indexOf(ref) !== -1 && l.indexOf(" = ") !== -1 && !/^\s*[-*]/.test(l)) : -1;
+    const line = formula !== -1 ? formula + 1 : findLine(path, ref || "#");
+    action = '<button type="button" data-open="' + path + '" data-line="' + line + '">פתיחה ב-fao56.md</button>';
   }
   showPop(el, "<h4>" + esc(s.label) + (ref ? ' · <bdi dir="ltr">' + esc(ref) + "</bdi>" : "") + "</h4><p>" + s.text + "</p>" + (action ? '<div class="acts">' + action + "</div>" : ""));
 }
@@ -155,7 +159,6 @@ function buildViews() {
     nav.appendChild(b);
   });
   // Views that a later increment builds say so plainly, instead of showing invented content.
-  $("calcNotice").innerHTML = "<p><b>מסביר החישוב ייבנה בשלב 5.</b></p><p>הוא יציג כל נוסחה עם ההצבה, היחידות והמקור, יום אחר יום, מתוך הערכים שהמנוע חישב בפועל. הנתונים כבר נמדדו ונבדקו מול worked-examples.md, וחלקם מוצגים כבר עכשיו בתצוגה \"מקורות ומושגים\".</p>";
   $("wIntro").innerHTML = "<p>" + L.intro + "</p>";
   $("flowNotice").innerHTML = "<p><b>" + term("trace", "מעקב") + " גולמי.</b> כאן אפשר לעבור על כל שורה של הקוד שלנו שרצה בתרחיש, עם המשתנים האמיתיים. " +
     "כאן אין הסבר כתוב לכל שורה: הטקסט בכרטיס נוצר אוטומטית מהמעקב ומתאר רק את מה שנמדד. ההסבר המודרך, צעד אחר צעד, נמצא בתצוגה הרגילה (כבו את מצב חוקר).</p>";
@@ -452,6 +455,253 @@ function bindWalk() {
   });
 }
 
+/* ---------- the calculation explorer ---------- */
+// Every number here is a string the engine produced (build_explorer.py). This code only places those strings into
+// the authored formulas, and turns them into positions for the two charts. It computes no irrigation value.
+let calcCase = "case3-start-100", calcDay = 5, calcStep = 0, kcCrop = null, veilSkipped = {};
+let answered = load("answered", {});
+function caseData(key) { return DATA.cases.find((c) => c.key === key); }
+function family(key) { return /^case3/.test(key) ? "case3" : key; }
+function plotNum(s) {  // for drawing only: "29.75" or "5000/3 (≈1666.667)" as a number of pixels' worth
+  const m = String(s).match(/^(-?\d+)\/(\d+)/);
+  return m ? Number(m[1]) / Number(m[2]) : parseFloat(s);
+}
+function fill(template, values, derived) {
+  return esc(template).replace(/\{(\w+)\}/g, (all, k) => {
+    if (!(k in values)) return all;
+    if (k === "compare") return esc(values[k]);
+    return '<span class="' + ((derived || []).indexOf(k) !== -1 ? "dv" : "tv") + '">' + esc(values[k]) + "</span>";
+  });
+}
+const VALUE_KEY = '<div class="vkey">ערכים: <span class="tv">קו ירוק</span> נמדד בריצה · <span class="dv">קו סגול מקווקו</span> ערך הסבר</div>';
+function fcard(c, values, line) {
+  return '<div class="fcard"><h4>' + esc(c.title) + '</h4><div class="formula">' + esc(c.formula) + '</div><div class="subst">' + fill(c.sub, values, c.derived) + "</div>" +
+    '<div class="units">יחידות: ' + esc(c.units) + "</div><p>" + c.text + "</p>" + (c.assume ? '<p class="assume"><b>הנחה:</b> ' + c.assume + "</p>" : "") +
+    '<div class="badges">' + c.badges.map((b) => badge(b[0], b[1])).join("") + "</div>" +
+    (line ? '<div class="excerpt"><div class="code">' + codeLines(ENGINE_FILE, line - 1, line + 1, line, "") + "</div></div>" : "") + "</div>";
+}
+const ENGINE_FILE = "services/planner-service/engine.py";
+function setupValues(c) {
+  const iv = c.input_values;
+  return { awc: iv.available_water_mm_per_m, zr: iv.root_depth_m, taw: c.setup.taw, threshold: c.setup.threshold, area: iv.area_m2,
+           row: iv.row_spacing_m, spacing: iv.emitter_spacing_m, emitters: c.setup.emitters, flow_lph: iv.flow_lph, flow: c.setup.flow, daily_cap_l: c.setup.daily_cap_l };
+}
+function dayValues(c, i) {
+  const d = c.days[i];
+  return Object.assign({}, d.values, {
+    season_day: d.season_day, prev_end: i ? c.days[i - 1].values.end : c.setup.previous_end, rain_mm: d.rain_mm, et0_mm: d.et0_mm,
+    taw: c.setup.taw, threshold: c.setup.threshold, flow: c.setup.flow, daily_cap_l: c.setup.daily_cap_l,
+    without_irrigation_mm: d.derived.without_irrigation_mm, desired_l: d.derived.desired_l, compare: d.derived.below_threshold ? "<" : "≥",
+  });
+}
+function section(key, inner) {
+  const n = L.calc.sections.findIndex((s) => s[0] === key);
+  return '<section class="card csec" id="sec-' + key + '"><h2>' + (n + 1) + ". " + esc(L.calc.sections[n][1]) + '</h2><div class="body">' + inner + "</div></section>";
+}
+function buildCalc() {
+  $("cIntro").innerHTML = "<p>" + L.calc.intro + "</p>";
+  $("cNav").innerHTML = L.calc.sections.map((s, n) => '<a href="#calc" data-sec="' + s[0] + '">' + (n + 1) + ". " + esc(s[1]) + "</a>").join("");
+  $("cNav").addEventListener("click", (e) => { const a = e.target.closest("a"); if (a) { e.preventDefault(); scrollToSection(a.dataset.sec); } });
+  $("cPick").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-family]");
+    if (b) setCase(b.dataset.family === "case3" ? "case3-start-100" : b.dataset.family);
+  });
+  $("cPick").addEventListener("input", (e) => { if (e.target.id === "cStart") setCase("case3-start-" + e.target.value); });
+  $("calcBody").addEventListener("click", calcClick);
+  renderCalc();
+}
+function scrollToSection(key) {
+  const el = $("sec-" + key);
+  if (el) el.scrollIntoView({ block: "start" });
+}
+function setCase(key, quiet) {
+  if (!caseData(key)) return;
+  calcCase = key; calcDay = key === "case3-start-100" ? 5 : (key === "b1" || key === "b2" ? 6 : (key === "b4" ? 5 : 0)); calcStep = 0;
+  renderCalc();
+  if (!quiet) writeHash();
+}
+function renderPick() {
+  const fam = family(calcCase), info = L.calc.case_labels[fam];
+  const pct = caseData(calcCase).input_values.initial_soil_water_pct;
+  $("cPick").innerHTML = '<div class="row1">' + Object.keys(L.calc.case_labels).map((f) => '<button type="button" data-family="' + f + '" aria-pressed="' + (f === fam) + '">' +
+      esc(L.calc.case_labels[f].title) + "</button>").join("") + "</div>" +
+    '<p class="about">' + esc(info.text) + "</p>" +
+    (fam === "case3" ? '<div class="start"><label for="cStart">הדלי בבוקר יום 1: <b>' + esc(pct) + '%</b></label><input type="range" id="cStart" min="0" max="100" step="10" value="' + esc(pct) + '">' +
+      '<span class="pending">' + (pct === "100" ? "100% היא ברירת המחדל (JL-011)." : "סימולציה: לא מדידה, ולא המלצה שנבדקה בשדה.") + "</span></div>" : "");
+}
+function renderCalc() {
+  renderPick();
+  const c = caseData(calcCase);
+  const sv = setupValues(c);
+  const html = [
+    section("inputs", inputsHtml(c)),
+    section("kc", kcHtml(c)),
+    section("etc", etcHtml()),
+    section("taw", VALUE_KEY + '<div class="fgrid">' + L.calc.setup_cards.map((k) => fcard(k, sv, k.line)).join("") + "</div>"),
+    section("day", '<div id="dayBox"></div>'),
+    section("week", weekHtml(c)),
+    section("rounding", roundingHtml(c)),
+    section("limits", limitsHtml()),
+  ].join("");
+  $("calcBody").innerHTML = html;
+  renderDay();
+  markNewTerms();
+}
+function inputsHtml(c) {
+  const iv = c.input_values;
+  const rows = L.calc.input_fields.map((f) => "<tr><td>" + esc(f[1]) + '</td><td class="n">' + esc(iv[f[0]]) + "</td><td>" + esc(f[2]) + "</td><td>" + esc(f[3]) + "</td></tr>").join("");
+  const days = c.days.map((d, n) => "<tr><td>" + (n + 1) + '</td><td class="n">' + esc(d.date) + '</td><td class="n">' + esc(d.et0_mm) + '</td><td class="n">' + esc(d.rain_mm) + "</td></tr>").join("");
+  return "<p>אלה הערכים שהמנוע קיבל בריצה " + vtag("traced") + ". הם הגיעו מהתשובות של ה" + term("fake", "שירותים המדומים") + ", בדיוק כמו בבדיקות.</p>" +
+    '<div class="tbl"><table><thead><tr><th>קלט</th><th>ערך</th><th>יחידה</th><th>מאיפה</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+    "<p>והתחזית, מ-weather:</p>" +
+    '<div class="tbl"><table><thead><tr><th>יום</th><th>תאריך</th><th>' + term("et0", "ET0") + " (מ\"מ)</th><th>גשם (מ\"מ)</th></tr></thead><tbody>" + days + "</tbody></table></div>";
+}
+function kcChart(crop, marks) {
+  const cv = DATA.kc_curves[crop], n = cv.kc_by_day.length, W = 720, H = 240, pl = 36, pr = 10, pt = 14, pb = 30;
+  const x = (day) => pl + (day - 1) / (n - 1) * (W - pl - pr), y = (k) => pt + (1 - k / 1.3) * (H - pt - pb);
+  const colors = { ini: "var(--s-units-bg)", dev: "var(--s-fao-bg)", mid: "var(--blue-bg)", late: "var(--s-project-bg)" };
+  let s = '<div class="chartwrap"><svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Kc לאורך העונה">';
+  Object.keys(cv.stage_days).forEach((st) => {
+    const r = cv.stage_days[st];
+    s += '<rect class="band" x="' + x(r[0]) + '" y="' + pt + '" width="' + (x(r[1]) - x(r[0])) + '" height="' + (H - pt - pb) + '" fill="' + colors[st] + '"/>' +
+      '<text x="' + (x(r[0]) + x(r[1])) / 2 + '" y="' + (pt + 14) + '" text-anchor="middle">' + esc(L.calc.stage_names[st]) + "</text>";
+  });
+  [0, 0.5, 1].forEach((k) => { s += '<line class="grid" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(k) + '" y2="' + y(k) + '"/><text x="' + (pl - 6) + '" y="' + (y(k) + 4) + '" text-anchor="end">' + k + "</text>"; });
+  (marks || []).forEach((m) => { s += '<rect class="mark" x="' + (x(m[0]) - 2) + '" y="' + pt + '" width="' + Math.max(4, x(m[1]) - x(m[0]) + 4) + '" height="' + (H - pt - pb) + '"/>'; });
+  s += '<polyline class="kc" points="' + cv.kc_by_day.map((k, i) => x(i + 1) + "," + y(plotNum(k))).join(" ") + '"/>';
+  [1, cv.stage_days.dev[0], cv.stage_days.mid[0], cv.stage_days.late[0], n].forEach((d) => { s += '<text x="' + x(d) + '" y="' + (H - 10) + '" text-anchor="middle">' + d + "</text>"; });
+  return s + "</svg></div>";
+}
+function kcHtml(c) {
+  const crop = kcCrop || c.crop_id, cv = DATA.kc_curves[crop];
+  const marks = crop === c.crop_id ? [[c.days[0].season_day, c.days[c.days.length - 1].season_day]] : [];
+  const stages = Object.keys(cv.stage_days).map((st) => "<tr><td>" + esc(L.calc.stage_names[st]) + '</td><td class="n">' + cv.stage_days[st][0] + "–" + cv.stage_days[st][1] + "</td><td>" +
+    (st === "ini" ? "Kc ini = " + esc(cv.kc_ini) : st === "mid" ? "Kc mid = " + esc(cv.kc_mid) : st === "dev" ? "קו ישר מ-" + esc(cv.kc_ini) + " ל-" + esc(cv.kc_mid) : "קו ישר מ-" + esc(cv.kc_mid) + " ל-" + esc(cv.kc_end)) + "</td></tr>").join("");
+  const pepper = DATA.kc_curves["bell-pepper"];
+  const exCards = DATA.kc_examples.map((ex) => fcard(Object.assign({}, L.calc.kc_card, { title: L.calc.kc_card.title + " · " + ex.source + " (פלפל)" }),
+    { kc_ini: pepper.kc_ini, kc_mid: pepper.kc_mid, l_ini: pepper.stages.ini, l_dev: pepper.stages.dev, day: ex.day, kc: ex.kc + (String(ex.kc_api) !== ex.kc ? " → " + ex.kc_api : "") }, L.calc.kc_card.line)).join("");
+  const season = DATA.season.map((r) => "<tr><td>" + (r.crop_id === "tomato" ? "עגבנייה" : "פלפל") + '</td><td class="n">' + esc(r.today) + '</td><td class="n">' + r.days + '</td><td class="n">' + r.first_day + "–" + r.last_day +
+    '</td><td class="n">' + r.status + "</td><td>" + (r.weather_called ? "כן" : "לא") + "</td></tr>").join("");
+  return "<p>" + L.calc.kc_intro + "</p>" +
+    '<div class="row1 seg" role="group">' + ["tomato", "bell-pepper"].map((k) => '<button type="button" data-kc="' + k + '" aria-selected="' + (k === crop) + '">' + (k === "tomato" ? "עגבנייה" : "פלפל") + "</button>").join("") + "</div>" +
+    kcChart(crop, marks) +
+    '<div class="legend2"><span><i class="box" style="background:var(--cur);opacity:.5"></i>ימי התוכנית בדוגמה שנבחרה</span><span>הקו: Kc בכל יום, מ-<code>kc_on</code> של המנוע ' + vtag("traced") + "</span></div>" +
+    '<div class="tbl"><table><thead><tr><th>שלב</th><th>ימים בעונה</th><th>Kc</th></tr></thead><tbody>' + stages + "</tbody></table></div>" +
+    VALUE_KEY + '<div class="fgrid">' + exCards + "</div>" + quizHtml("b3kc") +
+    "<h3>מחוץ לעונה (B6)</h3><p>" + L.calc.season_text + "</p>" +
+    '<div class="tbl"><table><thead><tr><th>גידול</th><th>היום בשדה</th><th>days</th><th>ימים בעונה</th><th>תשובה</th><th>weather נשאל?</th></tr></thead><tbody>' + season + "</tbody></table></div>";
+}
+function etcHtml() {
+  return "<p>" + L.calc.etc_intro + "</p>" + VALUE_KEY + '<div class="fgrid">' + L.calc.etc_cards.map((k) => fcard(k, DATA.case_1, k.line)).join("") + "</div>";
+}
+function pendingQuiz() {
+  return L.calc.predictions.find((q) => q.case === calcCase && q.day === calcDay + 1 && answered[q.id] === undefined && !veilSkipped[q.id]);
+}
+function quizHtml(id) {
+  const q = L.calc.predictions.find((x) => x.id === id), a = answered[id];
+  const opts = q.options.map((o, n) => '<button type="button" data-quiz="' + id + '" data-opt="' + n + '" class="' + (a !== undefined && a === n ? (o.correct ? "right" : "wrong") : "") +
+    (a !== undefined && o.correct ? " right" : "") + '">' + esc(o.text) + "</button>").join("");
+  const fb = a !== undefined ? '<div class="fb ' + (q.options[a].correct ? "right" : "wrong") + '"><b>' + (q.options[a].correct ? "נכון." : "לא בדיוק.") + "</b> " + q.options[a].why +
+    (q.options[a].correct ? "" : " <b>התשובה:</b> " + esc(q.options.find((o) => o.correct).text) + ".") + "</div>" : "";
+  return '<div class="quiz"><h4>שאלת חיזוי</h4><p>' + q.question + '</p><div class="opts">' + opts + "</div>" + fb +
+    (a === undefined && q.case ? '<button type="button" class="skip" data-skip="' + id + '">דלגו והציגו את התוצאה</button>' : "") + "</div>";
+}
+function renderDay() {
+  const box = $("dayBox");
+  if (!box) return;
+  const c = caseData(calcCase), st = L.calc.day_steps[calcStep], d = c.days[calcDay], api = c.plan.days[calcDay];
+  const questions = L.calc.predictions.filter((x) => x.case === calcCase && x.day === calcDay + 1);
+  const veil = pendingQuiz();  // results stay blurred until every question on this day is answered or skipped
+  box.innerHTML = '<div class="daypick" role="group" aria-label="יום">' + c.days.map((x, n) => '<button type="button" data-day="' + n + '" class="' + (x.values.applied_l !== "0" ? "irr" : "") +
+      '" aria-pressed="' + (n === calcDay) + '">יום ' + (n + 1) + (x.values.applied_l !== "0" ? " · השקיה" : "") + "</button>").join("") + "</div>" +
+    '<div class="steppick" role="group" aria-label="צעד">' + L.calc.day_steps.map((s, n) => '<button type="button" data-step="' + n + '" aria-pressed="' + (n === calcStep) + '">' + (n + 1) + ". " + esc(s.title) + "</button>").join("") + "</div>" +
+    questions.map((x) => quizHtml(x.id)).join("") +
+    '<div class="' + (veil ? "veiled" : "") + '">' + VALUE_KEY + fcard(st, dayValues(c, calcDay), d.lines[st.var === "desired_mm" ? "desired_mm" : st.var]) +
+    '<div class="apirow" style="margin-top:8px"><b>בתשובה של ה-API (מעוגל):</b><span>kc <span class="n">' + api.kc + '</span></span><span>litres <span class="n">' + api.litres + '</span></span><span>run_minutes <span class="n">' + api.run_minutes +
+    '</span></span><span>bucket_level_mm <span class="n">' + api.bucket_level_mm + "</span></span></div></div>" +
+    '<div class="dmeta"><button type="button" class="codebtn small" data-cstep="-1"><span>הצעד הקודם</span></button><button type="button" class="codebtn small" data-cstep="1"><span>הצעד הבא</span></button></div>';
+  markNewTerms();
+}
+function weekChart(c) {
+  const W = 720, H = 280, pl = 40, pr = 10, pt = 16, pb = 40, n = c.days.length, taw = plotNum(c.setup.taw);
+  const bw = (W - pl - pr) / n, y = (v) => pt + (1 - v / (taw * 1.08)) * (H - pt - pb);
+  let s = '<div class="chartwrap"><svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="מפלס הדלי בסוף כל יום">';
+  s += '<line class="taw" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(taw) + '" y2="' + y(taw) + '"/><text x="' + (pl - 6) + '" y="' + (y(taw) + 4) + '" text-anchor="end">TAW</text>';
+  s += '<line class="thr" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y(plotNum(c.setup.threshold)) + '" y2="' + y(plotNum(c.setup.threshold)) + '"/><text x="' + (pl - 6) + '" y="' + (y(plotNum(c.setup.threshold)) + 4) + '" text-anchor="end">סף</text>';
+  c.days.forEach((d, i) => {
+    const x0 = pl + i * bw + bw * 0.2, w = bw * 0.6, end = plotNum(d.values.end), start = plotNum(d.values.start);
+    s += '<rect class="bar' + (i === calcDay ? " sel" : "") + '" data-day="' + i + '" x="' + x0 + '" y="' + y(end) + '" width="' + w + '" height="' + (y(0) - y(end)) + '"><title>' + esc("יום " + (i + 1) + ": סוף היום " + d.values.end + " מ\"מ") + "</title></rect>";
+    s += '<circle class="start" cx="' + (x0 + w / 2) + '" cy="' + y(start) + '" r="4"><title>' + esc("בוקר, אחרי הגשם: " + d.values.start) + "</title></circle>";
+    if (d.values.applied_l !== "0") s += '<text x="' + (x0 + w / 2) + '" y="' + (y(end) - 8) + '" text-anchor="middle" style="fill:var(--blue);font-weight:600">' + esc(c.plan.days[i].litres + " L") + "</text>";
+    s += '<text x="' + (x0 + w / 2) + '" y="' + (H - 22) + '" text-anchor="middle">יום ' + (i + 1) + '</text><text x="' + (x0 + w / 2) + '" y="' + (H - 7) + '" text-anchor="middle">' + esc(d.values.end) + "</text>";
+  });
+  return s + "</svg></div>";
+}
+function weekHtml(c) {
+  const rows = c.days.map((d, i) => {
+    const api = c.plan.days[i];
+    return '<tr data-day="' + i + '" class="' + (d.values.applied_l !== "0" ? "irr" : "") + (i === calcDay ? " sel" : "") + '"><td>' + (i + 1) + '</td><td class="n">' + esc(d.et0_mm) + '</td><td class="n">' + esc(d.rain_mm) +
+      '</td><td class="n">' + esc(d.values.kc) + '</td><td class="n">' + esc(d.values.start) + '</td><td class="n">' + esc(d.values.etc) + '</td><td class="n"><span class="dv">' + esc(d.derived.without_irrigation_mm) +
+      '</span></td><td class="n">' + esc(d.values.applied_l) + (d.derived.capped ? " (תקרה)" : "") + '</td><td class="n">' + esc(d.values.run_minutes) + '</td><td class="n">' + esc(d.values.end) +
+      '</td><td class="n">' + api.litres + " / " + api.run_minutes + " / " + api.bucket_level_mm + "</td></tr>";
+  }).join("");
+  return "<p>המפלס בסוף כל יום. ביום שמשקים, הדלי מתמלא בבוקר ויורד במשך היום. הנקודה היא המפלס בבוקר, אחרי הגשם. לחיצה על יום פותחת אותו ב\"יום אחד בדלי\".</p>" +
+    weekChart(c) + '<div class="legend2"><span><i style="border-color:var(--ok)"></i>TAW, דלי מלא</span><span><i style="border-color:var(--err)"></i>הסף, חצי דלי</span><span><i class="box" style="background:var(--s-fao)"></i>סוף היום</span>' +
+    "<span>● הבוקר, אחרי הגשם</span>" + vtag("traced") + "</div>" + VALUE_KEY +
+    '<div class="tbl"><table><thead><tr><th>יום</th><th>ET0</th><th>גשם</th><th>Kc</th><th>בוקר (start)</th><th>ETc</th><th>start − ETc</th><th>ליטרים</th><th>דקות</th><th>סוף היום</th><th>API: ליטרים / דקות / מפלס</th></tr></thead><tbody>' +
+    rows + "</tbody></table></div>";
+}
+function roundingHtml(c) {
+  const b5 = DATA.rounding.map((r) => '<tr><td class="n">' + esc(r.value) + '</td><td class="n">' + r.places + '</td><td class="n">' + esc(r.result) + "</td></tr>").join("");
+  const exact = c.days.map((d, i) => "<tr><td>" + (i + 1) + '</td><td class="n">' + esc(d.values.applied_l) + '</td><td class="n">' + c.plan.days[i].litres + '</td><td class="n">' + esc(d.values.run_minutes) +
+    '</td><td class="n">' + c.plan.days[i].run_minutes + '</td><td class="n">' + esc(d.values.end) + '</td><td class="n">' + c.plan.days[i].bucket_level_mm + "</td></tr>").join("");
+  return "<p>" + L.calc.rounding_text + "</p>" +
+    "<p>בדוגמה שנבחרה: הערך המדויק של המנוע, ולידו מה שה-API מחזיר " + vtag("traced") + ".</p>" +
+    '<div class="tbl"><table><thead><tr><th>יום</th><th>ליטרים מדויק</th><th>API</th><th>דקות מדויק</th><th>API</th><th>מפלס מדויק</th><th>API</th></tr></thead><tbody>' + exact + "</tbody></table></div>" +
+    "<p>פונקציית העיגול על מקרי קצה (B5), מ-<code>round_half_up</code> עצמה:</p>" +
+    '<div class="tbl"><table><thead><tr><th>ערך</th><th>ספרות</th><th>תוצאה</th></tr></thead><tbody>' + b5 + "</tbody></table></div>" +
+    "<p>למה " + term("fraction") + " ולא float? שלוש דוגמאות מ-<code>worked-examples.md</code>, שם החישוב עם float נעשה בנפרד:</p><ul>" +
+    L.calc.float_notes.map((f) => "<li><b>" + esc(f.case) + ":</b> " + esc(f.text) + "</li>").join("") + "</ul>" +
+    '<div class="dmeta">' + badge("project", "JL-018") + badge("project", "JL-019") + "</div>";
+}
+function limitsHtml() {
+  const full = caseData("case3-start-100"), half = caseData("case3-start-50");
+  const firstIrr = (c) => c.days.findIndex((d) => d.values.applied_l !== "0") + 1;
+  return "<p>המודל הזה פשוט בכוונה, כדי שאפשר יהיה לבדוק אותו ביד. אלה הדברים שהוא לא יודע, ומה יכול להשתבש בגללם.</p>" +
+    '<div class="limits">' + L.calc.limits.map((l) => {
+      let ex = "";
+      if (l.example === "first_irrigation") ex = "דוגמה מהריצה: Case 3 מדלי מלא משקה לראשונה ביום " + firstIrr(full) + ". אותה חלקה ואותה תחזית, מחצי דלי: כבר ביום " + firstIrr(half) + ".";
+      if (l.example === "cap") ex = "דוגמה: ביום 6 ב-Case 3 הדלי מסתיים ב-" + full.days[5].values.end + " מ\"מ (נמדד בריצה), ולא ב-" + l.quote + " כמו בלי התקרה, לפי worked-examples.";
+      return '<div class="limit"><h4>' + esc(l.title) + "</h4><p>" + l.text + '</p><p class="risk"><b>מה יכול להשתבש:</b> ' + l.risk + "</p>" + (ex ? '<p class="ex">' + esc(ex) + "</p>" : "") +
+        '<div class="badges">' + l.badges.map((b) => badge(b[0], b[1])).join("") + "</div></div>";
+    }).join("") + "</div>";
+}
+function calcClick(e) {
+  const t = e.target;
+  const day = t.closest("[data-day]"), step = t.closest("[data-step]"), cstep = t.closest("[data-cstep]"), kc = t.closest("[data-kc]");
+  const opt = t.closest("[data-opt]"), skip = t.closest("[data-skip]");
+  if (opt) {
+    answered[opt.dataset.quiz] = Number(opt.dataset.opt); save("answered", answered);
+    if (opt.closest("#dayBox")) renderDay(); else { const box = opt.closest(".quiz"); box.outerHTML = quizHtml(opt.dataset.quiz); markNewTerms(); }
+    return;
+  }
+  if (skip) { veilSkipped[skip.dataset.skip] = true; renderDay(); return; }
+  if (kc) { kcCrop = kc.dataset.kc; const sec = $("sec-kc"); sec.outerHTML = section("kc", kcHtml(caseData(calcCase))); markNewTerms(); return; }
+  if (step) { calcStep = Number(step.dataset.step); renderDay(); return; }
+  if (cstep) {
+    const n = calcDay * L.calc.day_steps.length + calcStep + Number(cstep.dataset.cstep), max = caseData(calcCase).days.length * L.calc.day_steps.length - 1;
+    const m = Math.max(0, Math.min(max, n));
+    calcDay = Math.floor(m / L.calc.day_steps.length); calcStep = m % L.calc.day_steps.length;
+    renderDay(); refreshWeekSelection(); return;
+  }
+  if (day && !t.closest("#dayBox .daypick") && t.closest("#sec-week")) { calcDay = Number(day.dataset.day); renderDay(); refreshWeekSelection(); scrollToSection("day"); return; }
+  if (day) { calcDay = Number(day.dataset.day); renderDay(); refreshWeekSelection(); }
+}
+function refreshWeekSelection() {
+  const sec = $("sec-week");
+  if (sec) { sec.outerHTML = section("week", weekHtml(caseData(calcCase))); markNewTerms(); }
+}
+
 /* ---------- the trace stepper ---------- */
 let T = null, idx = 0, playing = false, timer = null, edFile = null;
 function prepare(s) {
@@ -692,6 +942,12 @@ function goStop(key, n) {
   path = { key: key, stop: n };
   save("path", path);
   const target = stops[n];
+  if (target.view === "calc") {
+    showView("calc");
+    renderPathbar();
+    if (target.section) scrollToSection(target.section);
+    return;
+  }
   if (target.view === "map") {
     setPanel(target.panel || "system", true);
     if (panel === "decisions") lightScenario(target.scenario || null, true);
@@ -749,6 +1005,7 @@ function buildSources() {
 function writeHash() {
   let h = "#" + view;
   if (view === "flow" && T) h += "/" + T.s.key + "/" + (document.body.classList.contains("explorer") ? String(idx + 1) : "s" + (wIdx + 1));
+  if (view === "calc") h += "/" + calcCase;
   if (view === "map") h += "/" + panel + ((panel === "system" ? selected : litScenario) ? "/" + (panel === "system" ? selected : litScenario) : "");
   try { history.replaceState(null, "", h); } catch (e) { /* optional */ }
 }
@@ -763,7 +1020,7 @@ function readHash() {
   $("build").innerHTML = (m.commit ? "<span>נבנה מ-commit <code>" + esc(m.commit) + "</code></span>" : '<span class="warn">נבנה מעותק בלי git: לא ידוע מאיזה commit</span>') +
     (m.uncommitted_changes ? '<span class="warn">כולל שינויים שלא נשמרו ב-commit</span>' : "") +
     '<span class="ltr" dir="ltr">' + esc(m.versions) + "</span><span>הדף נבנה רק אם כל הבדיקות עברו.</span>";
-  buildViews(); buildScenarios(); buildPaths(); buildSources(); bindToolbar(); buildMap(); buildDecisions(); bindWalk();
+  buildViews(); buildScenarios(); buildPaths(); buildSources(); bindToolbar(); buildMap(); buildDecisions(); bindWalk(); buildCalc();
   document.querySelectorAll("#seg button").forEach((b) => b.addEventListener("click", () => setPanel(b.dataset.panel)));
   window.addEventListener("resize", () => { if (view === "map") drawWires(); });
   setTheme(load("theme", "auto"));
@@ -786,6 +1043,7 @@ function readHash() {
     if (panel === "system" && L.services[h.b]) selectService(h.b, true);
     if (panel === "decisions" && DATA.scenarios.some((s) => s.key === h.b)) lightScenario(h.b, true);
   } else setPanel("system", true);
+  if (h.view === "calc" && h.a) setCase(h.a, true);
   path = load("path", null);
   if (path && !L.paths[path.key]) path = null;
   renderPathbar();
