@@ -56,9 +56,21 @@
     </section>
 
     <section data-view="flow" hidden class="col">
-      <div class="notice guided" id="flowGuided"></div>
+      <section class="card wintro guided" id="wIntro"></section>
       <div class="notice raw" id="flowNotice"></div>
       <div class="scen" id="scen" role="group" aria-label="תרחיש"></div>
+      <div class="toolbar guided" role="toolbar" aria-label="מעבר בין הצעדים">
+        <button type="button" id="wBack">הצעד הקודם</button>
+        <button type="button" id="wNext" class="primary">הצעד הבא</button>
+        <span class="counter" id="wCount"></span>
+        <span class="wdots" id="wDots"></span>
+        <span class="keys"><kbd>↓</kbd>/<kbd>F10</kbd> הבא · <kbd>↑</kbd> הקודם</span>
+      </div>
+      <div class="lanesbar guided" id="wLanes" aria-hidden="true"></div>
+      <div class="wgrid guided">
+        <section class="card wexp" id="wExp" aria-live="polite"></section>
+        <section class="card wobs" id="wObs"></section>
+      </div>
       <div class="toolbar raw" role="toolbar" aria-label="פקדי המעקב">
         <button type="button" id="bRestart" title="Home">מההתחלה</button>
         <button type="button" id="bBack" title="↑">אחורה</button>

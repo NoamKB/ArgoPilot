@@ -155,16 +155,10 @@ function buildViews() {
     nav.appendChild(b);
   });
   // Views that a later increment builds say so plainly, instead of showing invented content.
-  $("flowGuided").innerHTML = "<p><b>ההסבר המודרך, צעד אחר צעד, ייבנה בשלב 4.</b> כאן יופיע מעבר מוסבר על בקשה: מה כל צעד מנסה להשיג, " +
-    "מה נכנס ויוצא, ואיפה זה בקוד. עד אז אין כאן הסברים, כדי לא להציג טקסט שלא נבדק.</p>" +
-    "<p>בינתיים: בארכיטקטורה יש את מפת המערכת ואת זרימת ההחלטות. במצב חוקר אפשר לעבור על ה" + term("trace", "מעקב") +
-    " הגולמי: כל שורה שרצה, עם המשתנים האמיתיים. למטה: הבקשה והתשובה האמיתיות של כל תרחיש.</p>" +
-    '<div class="acts"><button type="button" id="gMap">לארכיטקטורה</button><button type="button" id="gRaw">פתיחת מצב חוקר</button></div>';
-  $("gMap").addEventListener("click", () => showView("map"));
-  $("gRaw").addEventListener("click", () => setExplorer(true));
   $("calcNotice").innerHTML = "<p><b>מסביר החישוב ייבנה בשלב 5.</b></p><p>הוא יציג כל נוסחה עם ההצבה, היחידות והמקור, יום אחר יום, מתוך הערכים שהמנוע חישב בפועל. הנתונים כבר נמדדו ונבדקו מול worked-examples.md, וחלקם מוצגים כבר עכשיו בתצוגה \"מקורות ומושגים\".</p>";
+  $("wIntro").innerHTML = "<p>" + L.intro + "</p>";
   $("flowNotice").innerHTML = "<p><b>" + term("trace", "מעקב") + " גולמי.</b> כאן אפשר לעבור על כל שורה של הקוד שלנו שרצה בתרחיש, עם המשתנים האמיתיים. " +
-    "ההסברים המודרכים לכל צעד (מה אנחנו מנסים להשיג ולמה) ייכתבו בשלב 4. עד אז, ההסבר בכרטיס נוצר אוטומטית מהמעקב ומתאר רק את מה שנמדד.</p>";
+    "כאן אין הסבר כתוב לכל שורה: הטקסט בכרטיס נוצר אוטומטית מהמעקב ומתאר רק את מה שנמדד. ההסבר המודרך, צעד אחר צעד, נמצא בתצוגה הרגילה (כבו את מצב חוקר).</p>";
 }
 
 /* ---------- architecture: the system map ---------- */
@@ -398,6 +392,66 @@ function setPanel(p, quiet) {
   if (!quiet) writeHash();
 }
 
+/* ---------- the guided walkthrough: authored steps tied to real moments of the trace ---------- */
+let wIdx = 0;
+const LANE_NAME = {};
+L.lanes.forEach((l) => { LANE_NAME[l[0]] = l[1]; });
+function walk() { return T.s.walkthrough; }
+function wGo(n) {
+  wIdx = Math.max(0, Math.min(walk().length - 1, n));
+  renderWalk();
+  writeHash();
+}
+function renderWalk() {
+  // A step's kind is "error" or "ok"; the shared CSS classes are "err" and "ok".
+  const steps = walk(), st = steps[wIdx], o = st.observed, kind = st.kind === "error" ? "err" : (st.kind || "");
+  $("wCount").textContent = "צעד " + (wIdx + 1) + " מתוך " + steps.length;
+  $("wBack").disabled = wIdx === 0;
+  $("wNext").disabled = wIdx === steps.length - 1;
+  $("wDots").innerHTML = steps.map((s, n) => '<button type="button" data-n="' + n + '" class="' + (s.kind === "error" ? "err" : (s.kind || "")) + (n < wIdx ? " past" : "") + (n === wIdx ? " now" : "") +
+    '" title="' + esc((n + 1) + ". " + s.title) + '" aria-label="' + esc("צעד " + (n + 1) + ": " + s.title) + '"></button>').join("");
+  $("wLanes").innerHTML = L.lanes.map((l) => '<span class="lane' + (l[0] === st.lane ? " from " + kind : "") + (l[0] === st.to ? " to" : "") + '">' + esc(l[1]) + "</span>").join("");
+  // The authored explanation.
+  $("wExp").className = "card wexp" + (kind ? " " + kind : "");
+  $("wExp").innerHTML = '<div class="ex-head"><span class="act' + (kind ? " " + kind : "") + '">' + esc(LANE_NAME[st.lane]) + (st.to ? " → " + esc(LANE_NAME[st.to]) : "") + "</span>" + vtag("authored") + "</div>" +
+    "<h3>" + esc(st.title) + "</h3>" +
+    '<dl class="parts"><div><dt>מה אנחנו מנסים להשיג?</dt><dd>' + st.goal + "</dd></div>" +
+    "<div><dt>מה קורה?</dt><dd>" + st.what + "</dd></div>" +
+    "<div><dt>למה זה חשוב?</dt><dd>" + st.why + "</dd></div></dl>" +
+    (st.badges.length ? '<div class="badges">' + st.badges.map((b) => badge(b[0], b[1])).join("") + "</div>" : "");
+  // What the run really did at this moment.
+  let obs = "";
+  if (st.unobserved) obs += '<p class="pending">' + esc(st.unobserved) + "</p>";
+  if (o.request) obs += "<div><h3>הבקשה שהגיעה ל-planner</h3><div class=\"mono\">" + esc(o.request.method + " " + o.request.url) + "</div></div>";
+  if (o.vars && Object.keys(o.vars).length) obs += "<div><h3>משתנים בשורה הזו</h3>" + changedList(o.vars) + "</div>";
+  if (o.returns) obs += Object.keys(o.returns).map((f) => "<div><h3>מה <code>" + esc(f) + "()</code> החזירה</h3><div class=\"ret\">" + esc(o.returns[f]) + "</div></div>").join("");
+  if (o.calls) obs += "<div><h3>הקריאה ל-" + term("upstream") + " והתשובה של ה" + term("fake", "שירות המדומה") + "</h3><ul class=\"calls\">" + o.calls.map((c) => {
+    const q = Object.keys(c.query).map((k) => k + "=" + c.query[k]).join("&");
+    const result = c.error ? '<span class="bad">' + esc(c.error) + "</span>" : '<span class="' + (c.status === 200 ? "good" : "bad") + '">' + c.status + "</span>";
+    return "<li><details><summary>" + esc(c.service) + " · GET " + esc(c.path + (q ? "?" + q : "")) + " → " + result + "</summary>" + (c.error ? "" : '<pre class="json">' + esc(JSON.stringify(c.body, null, 2)) + "</pre>") + "</details></li>";
+  }).join("") + "</ul></div>";
+  if (o.response) obs += "<div><h3>התשובה של ה-planner</h3><span class=\"pill " + (o.response.status < 400 ? "good" : "bad") + "\">HTTP " + o.response.status + "</span>" +
+    '<pre class="json">' + esc(JSON.stringify(o.response.body, null, 2)) + "</pre></div>";
+  if (o.logs && o.logs.length) obs += "<div><h3>הלוג בטרמינל</h3><div class=\"mono\">" + o.logs.map(esc).join("<br>") + "</div></div>";
+  const c = st.code;
+  obs += "<div><h3>איפה בקוד</h3><div class=\"whereline\">" + esc(short(c.file)) + " · line " + c.line + "</div>" +
+    '<div class="excerpt"><div class="code">' + codeLines(c.file, c.line - 2, c.line + 2, c.line, kind) + "</div></div>" +
+    '<div class="dmeta" style="margin-top:6px"><button type="button" class="codebtn small" data-open="' + esc(c.file) + '" data-line="' + c.line + '"><span>הקובץ המלא</span></button>' +
+    (st.test ? testBtn(st.test) : "") +
+    (typeof st.event === "number" ? '<button type="button" class="codebtn small" data-raw="' + st.event + '"><span>הרגע הזה במעקב הגולמי (מצב חוקר)</span></button>' : "") + "</div></div>";
+  $("wObs").innerHTML = "<h2>מה נמדד בריצה " + (st.unobserved && !o.response && !o.request ? "" : vtag("traced")) + '</h2><div class="body">' + obs + "</div>";
+  markNewTerms();
+}
+function bindWalk() {
+  $("wBack").addEventListener("click", () => wGo(wIdx - 1));
+  $("wNext").addEventListener("click", () => wGo(wIdx + 1));
+  $("wDots").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) wGo(Number(b.dataset.n)); });
+  $("wObs").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-raw]");
+    if (b) { setExplorer(true); go(Number(b.dataset.raw)); }
+  });
+}
+
 /* ---------- the trace stepper ---------- */
 let T = null, idx = 0, playing = false, timer = null, edFile = null;
 function prepare(s) {
@@ -439,10 +493,12 @@ function loadScenario(key, at) {
   idx = typeof at === "number" ? at : 0;
   edFile = null;
   moves = [];  // "back" never jumps into another scenario
+  wIdx = 0;
   document.querySelectorAll("#scen button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.k === s.key ? "true" : "false"));
   $("scrub").max = String(T.steps.length - 1);
   renderTabs();
   renderRequest();
+  renderWalk();
   update();
 }
 function renderRequest() {
@@ -506,7 +562,7 @@ function update() {
   $("thread").innerHTML = f.thread === "worker" ? term("worker") : (f.thread === "event-loop" ? term("loop") : esc(f.thread));
   $("exTag").innerHTML = vtag("traced");
   $("exTitle").innerHTML = '<span class="ltr">' + esc(f.function + "()") + "</span>";
-  $("pGoal").innerHTML = '<span class="pending">הסבר מודרך לצעד הזה ייכתב בשלב 4.</span>';
+  $("pGoal").innerHTML = '<span class="pending">אין הסבר כתוב לשורה בודדת במעקב הגולמי. ההסבר המודרך נמצא בתצוגה הרגילה.</span>';
   let what;
   if (e.event === "line") what = "השורה המסומנת עומדת לרוץ. המשתנים מוצגים כפי שהם ממש לפני שהיא רצה, כמו בדיבאגר.";
   else if (e.event === "exception") what = "נזרקה " + term("exception", "חריגה") + ": <code>" + esc(e.detail) + "</code>. אם הפונקציה לא תופסת אותה, היא עוברת לפונקציה שקראה לה.";
@@ -582,6 +638,11 @@ function bindToolbar() {
     if (view !== "flow" || $("srcDlg").open) return;
     const tag = (e.target && e.target.tagName) || "";
     if (tag === "SELECT" || tag === "INPUT") return;
+    if (!document.body.classList.contains("explorer")) {
+      if (e.key === "F10" || e.key === "ArrowDown") { e.preventDefault(); wGo(wIdx + 1); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); wGo(wIdx - 1); }
+      return;
+    }
     if (e.key === "F10" || e.key === "ArrowDown") { e.preventDefault(); stop(); stepOver(); }
     else if (e.key === "F11" && e.shiftKey) { e.preventDefault(); stop(); stepOut(); }
     else if (e.key === "F11") { e.preventDefault(); stop(); go(idx + 1); }
@@ -595,7 +656,12 @@ function setExplorer(on) {
   document.body.classList.toggle("explorer", on);
   $("bExplorer").setAttribute("aria-pressed", on ? "true" : "false");
   save("explorer", on);
-  if (on && T) paintEditor(false);
+  if (on && T) {
+    const st = walk()[wIdx];
+    if (st && typeof st.event === "number" && idx === 0) { idx = st.event; update(); }
+    paintEditor(false);
+  }
+  if (T) writeHash();
 }
 function setPresenter(on) {
   document.body.classList.toggle("presenter", on);
@@ -634,6 +700,7 @@ function goStop(key, n) {
     stop();
     loadScenario(target.scenario, 0);
     if (target.at) go(firstStepIn(T, target.at));
+    if (target.step) wGo(walk().findIndex((s) => s.key === target.step));
   }
   showView(target.view);
   renderPathbar();
@@ -681,7 +748,7 @@ function buildSources() {
 /* ---------- address bar: #flow/registry-down/12, #sources ---------- */
 function writeHash() {
   let h = "#" + view;
-  if (view === "flow" && T) h += "/" + T.s.key + "/" + (idx + 1);
+  if (view === "flow" && T) h += "/" + T.s.key + "/" + (document.body.classList.contains("explorer") ? String(idx + 1) : "s" + (wIdx + 1));
   if (view === "map") h += "/" + panel + ((panel === "system" ? selected : litScenario) ? "/" + (panel === "system" ? selected : litScenario) : "");
   try { history.replaceState(null, "", h); } catch (e) { /* optional */ }
 }
@@ -696,7 +763,7 @@ function readHash() {
   $("build").innerHTML = (m.commit ? "<span>נבנה מ-commit <code>" + esc(m.commit) + "</code></span>" : '<span class="warn">נבנה מעותק בלי git: לא ידוע מאיזה commit</span>') +
     (m.uncommitted_changes ? '<span class="warn">כולל שינויים שלא נשמרו ב-commit</span>' : "") +
     '<span class="ltr" dir="ltr">' + esc(m.versions) + "</span><span>הדף נבנה רק אם כל הבדיקות עברו.</span>";
-  buildViews(); buildScenarios(); buildPaths(); buildSources(); bindToolbar(); buildMap(); buildDecisions();
+  buildViews(); buildScenarios(); buildPaths(); buildSources(); bindToolbar(); buildMap(); buildDecisions(); bindWalk();
   document.querySelectorAll("#seg button").forEach((b) => b.addEventListener("click", () => setPanel(b.dataset.panel)));
   window.addEventListener("resize", () => { if (view === "map") drawWires(); });
   setTheme(load("theme", "auto"));
@@ -711,7 +778,9 @@ function readHash() {
   const q = new URLSearchParams(location.search);  // ?explorer=1 or ?presenter=1, for links and screenshots
   if (q.get("explorer") === "1") setExplorer(true);
   if (q.get("presenter") === "1") setPresenter(true);
-  loadScenario(h.view === "flow" && h.a ? h.a : "plan", h.view === "flow" && h.b ? Number(h.b) - 1 : 0);
+  const guidedStep = h.view === "flow" && h.b && h.b[0] === "s";
+  loadScenario(h.view === "flow" && h.a ? h.a : "plan", h.view === "flow" && h.b && !guidedStep ? Number(h.b) - 1 : 0);
+  if (guidedStep) wGo(Number(h.b.slice(1)) - 1);
   if (h.view === "map") {
     setPanel(h.a, true);
     if (panel === "system" && L.services[h.b]) selectService(h.b, true);

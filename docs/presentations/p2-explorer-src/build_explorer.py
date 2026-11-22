@@ -74,6 +74,7 @@ SOURCES = [PLANNER + name for name in TRACED + ["config.py", "tests/conftest.py"
     "services/frontend/src/app/plots/[id]/page.tsx",
     "services/frontend/src/components/plan-error.tsx",
     "services/frontend/src/components/stale-badge.tsx",
+    "services/frontend/src/components/today-panel.tsx",
     ".claude/skills/irrigation-calc-reference/SKILL.md",
     ".claude/skills/irrigation-calc-reference/references/worked-examples.md",
     "docs/judgment-log.md",
@@ -538,6 +539,62 @@ def decision_path(run: dict) -> dict:
     return {"nodes": nodes, "outcome": "success" if status == 200 else f"{nodes[-1]}:{status}"}
 
 
+def frame_state(run: dict, frame: int, upto: int) -> dict:
+    """The frame's local variables (as shown on the page) at event `upto`: every change up to and including it."""
+    state: dict = {}
+    for e in run["events"][: upto + 1]:
+        if e["frame"] == frame:
+            state.update(e["changed"])
+    return state
+
+
+def resolve_step(run: dict, key: str) -> dict:
+    """One walkthrough step: the authored text from steps.py, plus what really happened at its anchor in this run."""
+    step, where = steps.STEPS[key], f"walkthrough {run['key']}/{key}"
+    out = {"key": key, "lane": step["lane"], "to": step.get("to"), "kind": step.get("kind", ""), "title": step["title"],
+           "badges": step.get("badges", []), "unobserved": step.get("unobserved")}
+    for field in ("goal", "what", "why"):
+        out[field] = with_terms(step[field], where)
+    observed: dict = {}
+    if "at" in step:
+        path, function, needle = step["at"]
+        line = line_of(path, needle)
+        index = next((i for i, e in enumerate(run["events"]) if e["event"] == "line" and e["line"] == line
+                      and run["frames"][e["frame"]]["file"] == path and run["frames"][e["frame"]]["function"] == function), None)
+        check(index is not None, f"{where}: line {line} of {function} never ran in this scenario")
+        if index is not None:
+            out["event"] = index
+            state = frame_state(run, run["events"][index]["frame"], index)
+            for name in step.get("show", []):
+                check(name in state, f"{where}: {name} is not a local variable of {function} there")
+            observed["vars"] = {name: state.get(name, "") for name in step.get("show", [])}
+        out["code"] = {"file": path, "line": line, "label": function}
+    if "code" in step:
+        out["code"] = code_ref(step["code"], where)
+    returns = {}
+    for function in step.get("returns", []):
+        frames = {n for n, f in enumerate(run["frames"]) if f["function"] == function}
+        detail = next((e["detail"] for e in run["events"] if e["frame"] in frames and e["event"] == "return"), None)
+        check(detail is not None, f"{where}: {function} never returned in this scenario")
+        returns[function] = detail
+    if returns:
+        observed["returns"] = returns
+    if "calls" in step:
+        calls = [c for c in run["calls"] if c["name"] in step["calls"]]
+        check(sorted({c["name"] for c in calls}) == sorted(step["calls"]), f"{where}: expected calls {step['calls']}")
+        observed["calls"] = calls
+    if step.get("response"):
+        observed["response"] = run["response"]
+    if step.get("logs"):
+        observed["logs"] = run["logs"]
+    if step.get("response_request"):
+        observed["request"] = run["request"]
+    if "test" in step:
+        out["test"] = code_ref(step["test"], where)
+    out["observed"] = observed
+    return out
+
+
 def learning_content(scenarios: list[dict]) -> dict:
     """steps.py, checked against the traces, the views and the source files, with glossary markup applied."""
     by_key = {s["key"]: s for s in scenarios}
@@ -552,7 +609,12 @@ def learning_content(scenarios: list[dict]) -> dict:
     for key in steps.SUCCESS["scenarios"]:
         claimed[key] = "success"
     check(set(claimed) == set(by_key), f"every scenario must end at exactly one outcome: {sorted(set(by_key) ^ set(claimed))}")
+    check(set(steps.WALKTHROUGH) == set(by_key), "steps.WALKTHROUGH must cover every traced scenario")
+    used = {key for keys in steps.WALKTHROUGH.values() for key in keys}
+    check(used <= set(steps.STEPS), f"unknown walkthrough steps: {sorted(used - set(steps.STEPS))}")
+    check(set(steps.STEPS) <= used, f"walkthrough steps never used: {sorted(set(steps.STEPS) - used)}")
     for s in scenarios:
+        s["walkthrough"] = [resolve_step(s, key) for key in steps.WALKTHROUGH.get(s["key"], []) if key in steps.STEPS]
         s["decision_path"] = decision_path(s)
         check(claimed.get(s["key"]) == s["decision_path"]["outcome"],
               f"decision flow: scenario {s['key']} really ends at {s['decision_path']['outcome']}, steps.py says {claimed.get(s['key'])}")
@@ -590,6 +652,8 @@ def learning_content(scenarios: list[dict]) -> dict:
             else:
                 check(stop["stage"] > steps.CURRENT_STAGE, f"{where}: stage {stop['stage']} is already built; remove it")
             check(stop.get("service") in (None, *steps.SERVICES), f"{where}: unknown service")
+            if "step" in stop:
+                check(stop["step"] in steps.WALKTHROUGH.get(stop.get("scenario"), []), f"{where}: step {stop['step']} is not in its scenario")
             if "scenario" not in stop:
                 continue
             run = by_key.get(stop["scenario"])
@@ -600,6 +664,8 @@ def learning_content(scenarios: list[dict]) -> dict:
                 check(found, f"{where}: {target['function']} does not run in scenario {stop['scenario']}")
     return {
         "current_stage": steps.CURRENT_STAGE,
+        "intro": with_terms(steps.WALKTHROUGH_INTRO, "walkthrough intro"),
+        "lanes": steps.LANES,
         "services": services,
         "map_edges": steps.MAP_EDGES,
         "decisions": [node(d, f"decision {d['id']}") for d in steps.DECISIONS],

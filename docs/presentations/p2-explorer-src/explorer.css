@@ -310,6 +310,31 @@ body:not(.explorer) .flowgrid { grid-template-columns: minmax(0, 1fr); }
 .outcome .body { display: flex; flex-direction: column; gap: 8px; }
 .outcome .body p { margin: 0; }
 
+/* ---- the guided walkthrough (default flow view) ---- */
+.wintro { padding: 12px 16px; border-inline-start: 4px solid var(--blue); }
+.wintro p { margin: 0; }
+.wdots { display: flex; flex-wrap: wrap; gap: 4px; direction: ltr; }
+.wdots button { width: 16px; height: 16px; border-radius: 4px; border: 0; padding: 0; cursor: pointer; background: var(--line); }
+.wdots button.err { background: var(--err-bg); box-shadow: inset 0 0 0 1px var(--err); }
+.wdots button.ok { background: var(--ok-bg); box-shadow: inset 0 0 0 1px var(--ok); }
+.wdots button.past { background: var(--muted); }
+.wdots button.now { outline: 2px solid var(--fg); outline-offset: 1px; background: var(--cur); }
+.lanesbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.lane { font-family: var(--mono); font-size: 12.5px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--panel); }
+.lane.from { color: var(--fg); background: var(--cur-bg); border-color: var(--cur); font-weight: 600; }
+.lane.to { color: var(--blue); border-color: var(--blue); border-style: dashed; }
+.lane.from.err { background: var(--err-bg); border-color: var(--err); color: var(--err); }
+.lane.from.ok { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.wgrid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.wexp { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; border-color: var(--cur); box-shadow: inset 0 3px 0 var(--cur); }
+.wexp.err { border-color: var(--err); box-shadow: inset 0 3px 0 var(--err); }
+.wexp.ok { border-color: var(--ok); box-shadow: inset 0 3px 0 var(--ok); }
+.wexp h3 { margin: 0; font-size: 1.32em; line-height: 1.3; }
+.wobs .body { display: flex; flex-direction: column; gap: 10px; }
+.wobs h3 { margin: 0 0 3px; font-size: 13px; font-weight: 700; color: var(--muted); }
+.wobs .ret { font-family: var(--mono); font-size: 12.5px; direction: ltr; text-align: left; overflow-wrap: anywhere; }
+.v-authored { color: var(--s-units); background: var(--s-units-bg); border: 1px solid var(--s-units); }
+@media (max-width: 960px) { .wgrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) {
   .map { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: "browser ." "next registry" "planner db" "weather ." "openmeteo ."; gap: 50px 34px; padding: 14px 8px; }
   .box .ds { font-size: 12.5px; }
