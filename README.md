@@ -30,6 +30,24 @@ Instructor clarifications that change or add to a specification are in [`docs/in
 
 Every pull request into `main` runs [`.github/workflows/registry-service.yaml`](.github/workflows/registry-service.yaml): the registry tests on SQLite and PostgreSQL with 100% branch coverage, and a dependency vulnerability audit. `main` only changes through a pull request whose checks passed.
 
+## EC2 Development Server
+
+The project uses an Ubuntu EC2 instance on AWS.
+
+### SSH Access
+
+Configure your SSH key and connect using:
+
+```bash
+ssh -i ~/.ssh/ozveruach-dev-ec2-key.pem ubuntu@<EC2_PUBLIC_IP>
+```
+
+Alternatively, configure an SSH alias and run:
+
+```bash
+ssh agropilot-ec2
+```
+
 ## Project resources
 
 - **Presentations** ([`docs/presentations/`](docs/presentations/)): the P1 slides ([`p1-slides.pptx`](docs/presentations/p1-slides.pptx), English, with Hebrew speaker notes) and the Hebrew [P1 presenter guide](docs/presentations/p1-presenter-guide.md).
