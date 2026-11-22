@@ -48,6 +48,66 @@ Alternatively, configure an SSH alias and run:
 ssh agropilot-ec2
 ```
 
+## EC2 Operations
+
+The Registry Service runs on an Ubuntu EC2 instance, managed by `systemd`.
+
+### Managing the service
+
+Run these commands on the EC2 instance:
+
+```bash
+sudo systemctl status registry.service    # Check status
+sudo systemctl start registry.service     # Start service
+sudo systemctl stop registry.service      # Stop service
+sudo systemctl restart registry.service   # Restart service
+sudo journalctl -u registry.service -n 50 # View recent logs
+sudo journalctl -fu registry.service      # Follow logs
+```
+
+The service is enabled to start automatically when the instance boots.
+
+### Connecting after an EC2 restart
+
+Stopping and starting an EC2 instance may change its public IP address. A normal reboot does not.
+
+1. Open **AWS Console → EC2 → Instances**.
+2. Select the instance and click **Instance state → Start instance**, if stopped.
+3. Wait until the instance is running and its status checks pass.
+4. Copy its new **Public IPv4 address** from the instance details.
+5. On your local machine, update `HostName` in `~/.ssh/config`:
+
+```sshconfig
+Host agropilot-ec2
+    HostName <NEW_PUBLIC_IP>
+    User ubuntu
+    IdentityFile ~/.ssh/ozveruach-dev-ec2-key.pem
+    IdentitiesOnly yes
+```
+
+6. Reconnect:
+
+```bash
+ssh agropilot-ec2
+```
+
+7. Verify that the service started automatically:
+
+```bash
+sudo systemctl status registry.service
+curl http://127.0.0.1:8000/health
+```
+
+To test the API remotely, use the new public IP:
+
+```bash
+curl http://<NEW_PUBLIC_IP>:8000/health
+```
+
+Remote access requires an appropriate inbound Security Group rule.
+
+**Note:** Stop the EC2 instance when it is not needed to avoid unnecessary compute charges. EBS storage charges may continue.
+
 ## Project resources
 
 - **Presentations** ([`docs/presentations/`](docs/presentations/)): the P1 slides ([`p1-slides.pptx`](docs/presentations/p1-slides.pptx), English, with Hebrew speaker notes) and the Hebrew [P1 presenter guide](docs/presentations/p1-presenter-guide.md).
