@@ -17,8 +17,9 @@ Cell = tuple[int, int]
 def grid_cell(lat: float, lon: float) -> Cell:
     """The 0.1° cell of a point: (floor(lat × 10), floor(lon × 10)).
 
-    Decimal(str(value)) uses the number as written: the float 31.3 times 10 is 312.99999999999994,
-    which would put 31.3 in the 31.2 cell.
+    Decimal(str(value)) floors the number as written, so a point exactly on a cell edge, such as 31.3,
+    always lands in the cell above it (313). Plain float multiplication gives the same cells for ordinary
+    coordinates; Decimal is a defensive choice, not a fix for an observed bug.
     """
     lat_cell = math.floor(Decimal(str(lat)) * 10)
     lon_cell = math.floor(Decimal(str(lon)) * 10)

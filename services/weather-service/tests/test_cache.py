@@ -14,7 +14,7 @@ from schemas import ForecastDay
         (31.25, 34.79, (312, 347)),
         (31.2, 34.7, (312, 347)),  # the lower edge belongs to the cell
         (31.29999, 34.79999, (312, 347)),
-        (31.3, 34.8, (313, 348)),  # as a float 31.3 × 10 is 312.99999999999994; Decimal keeps it in 313
+        (31.3, 34.8, (313, 348)),  # a point exactly on the upper edge starts the next cell
         (-0.05, -0.05, (-1, -1)),  # floor, not truncation: -0.05 is below 0
         (0.0, 0.0, (0, 0)),
         (-90, -180, (-900, -1800)),

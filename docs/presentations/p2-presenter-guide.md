@@ -121,7 +121,7 @@ PY
 
 <div dir="rtl">
 
-- ה-docstring של `grid_cell` ב-`services/weather-service/cache.py` (שורה 20) וסעיף 5.4 במדריך ה-deep dive עדיין טוענים ש-`31.3 × 10` ב-float יוצא `312.99999999999994`. זה לא נכון: ב-Python זה `313.0`. בשקף 8 זה כבר תוקן. אם שואלים: Decimal הוא בחירה הגנתית, לא תיקון באג.
+- סעיף 5.4 במדריך ה-deep dive עדיין טוען ש-`31.3 × 10` ב-float יוצא `312.99999999999994`. זה לא נכון: ב-Python זה `313.0`. בשקף 8 ובקוד (`cache.py`, `test_cache.py`) זה כבר תוקן. אם שואלים: Decimal הוא בחירה הגנתית, לא תיקון באג.
 - אין CI ל-weather, ל-planner ול-frontend, ואין טסט end-to-end אוטומטי.
 
 </div>
