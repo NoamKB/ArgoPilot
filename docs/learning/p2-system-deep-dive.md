@@ -24,7 +24,7 @@ Part 13, on CI/CD and the AWS deployment, has a different basis, because that wo
 
 **A note on diagrams.** The guide contains a few Mermaid diagrams (Mermaid is a text format that many Markdown viewers draw as a picture). Every diagram is also explained in prose, so nothing depends on seeing it.
 
-**A companion.** The repository also has the P2 Explorer, `docs/presentations/p2-explorer.html`, an interactive Hebrew page. It was built by tracing the real planner code line by line while it ran against the same fake registry and weather services the tests use. Its numbers are real outputs of the engine, but its upstream services are fakes, not live ones.
+**A companion.** The repository also has the P2 Explorer, `docs/presentations/p2/p2-explorer.html`, an interactive Hebrew page. It was built by tracing the real planner code line by line while it ran against the same fake registry and weather services the tests use. Its numbers are real outputs of the engine, but its upstream services are fakes, not live ones.
 
 ---
 

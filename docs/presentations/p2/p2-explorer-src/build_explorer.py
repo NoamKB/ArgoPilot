@@ -1,8 +1,8 @@
 """Build the P2 explorer page by running the real planner-service code.
 
 Run from services/planner-service (the script imports the service and its test fakes, and needs its packages):
-    uv run python ../../docs/presentations/p2-explorer-src/build_explorer.py \
-        ../../docs/presentations/p2-explorer-src/explorer.template.html ../../docs/presentations/p2-explorer.html
+    uv run python ../../docs/presentations/p2/p2-explorer-src/build_explorer.py \
+        ../../docs/presentations/p2/p2-explorer-src/explorer.template.html ../../docs/presentations/p2/p2-explorer.html
 Add `--json DATA.json` to also write the embedded data on its own, for inspection.
 
 1. It runs the real planner app through FastAPI's TestClient, with the fake registry-service and weather-service

@@ -110,11 +110,11 @@ Remote access requires an appropriate inbound Security Group rule.
 
 ## Project resources
 
-- **Presentations** ([`docs/presentations/`](docs/presentations/)): the P1 slides ([`p1-slides.pptx`](docs/presentations/p1-slides.pptx), English, with Hebrew speaker notes) and the Hebrew [P1 presenter guide](docs/presentations/p1-presenter-guide.md).
+- **Presentations** ([`docs/presentations/`](docs/presentations/)): the P1 slides ([`p1-slides.pptx`](docs/presentations/p1/p1-slides.pptx), English, with Hebrew speaker notes) and the Hebrew [P1 presenter guide](docs/presentations/p1/p1-presenter-guide.md).
 - **Request debuggers**: interactive step-by-step walkthroughs of how the registry handles a request.
-  - [`request-debugger.html`](docs/presentations/request-debugger.html): the P1 version (sqlite3).
-  - [`request-debugger-sqlalchemy.html`](docs/presentations/request-debugger-sqlalchemy.html): the SQLAlchemy and PostgreSQL version, built before the P2 configuration change.
-  - Source and rebuild instructions: [`debugger-src/build_debugger.py`](docs/presentations/debugger-src/build_debugger.py).
+  - [`request-debugger.html`](docs/presentations/p1/request-debugger.html): the P1 version (sqlite3).
+  - [`request-debugger-sqlalchemy.html`](docs/presentations/p2/request-debugger-sqlalchemy.html): the SQLAlchemy and PostgreSQL version, built before the P2 configuration change.
+  - Source and rebuild instructions: [`debugger-src/build_debugger.py`](docs/presentations/p2/debugger-src/build_debugger.py).
 - **Learning**: [`docs/learning/p1-walkthrough.md`](docs/learning/p1-walkthrough.md) explains every P1 file, increment by increment.
 - **Design records**:
   - [`docs/judgment-log.md`](docs/judgment-log.md): significant engineering decisions and their reasons.

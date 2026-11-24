@@ -8,11 +8,11 @@ There are two debuggers:
 
 Run from services/registry-service (the script reads the source files from the current directory
 and needs the service's packages):
-    uv run python ../../docs/presentations/debugger-src/build_debugger.py \
-        ../../docs/presentations/debugger-src/debugger-sqlalchemy.template.html \
-        ../../docs/presentations/request-debugger-sqlalchemy.html
+    uv run python ../../docs/presentations/p2/debugger-src/build_debugger.py \
+        ../../docs/presentations/p2/debugger-src/debugger-sqlalchemy.template.html \
+        ../../docs/presentations/p2/request-debugger-sqlalchemy.html
 Then check the step data (needs Node.js):
-    node ../../docs/presentations/debugger-src/check_debugger.js ../../docs/presentations/request-debugger-sqlalchemy.html
+    node ../../docs/presentations/p2/debugger-src/check_debugger.js ../../docs/presentations/p2/request-debugger-sqlalchemy.html
 The step texts find their lines by searching the source, so after a code change the checker may
 report missing lines, and the step texts may need updating.
 """

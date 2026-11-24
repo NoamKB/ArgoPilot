@@ -1,4 +1,4 @@
-/* Colors, type and the code panel follow the P1 debugger (docs/presentations/debugger-src). */
+/* Colors, type and the code panel follow the P1 debugger (docs/presentations/p2/debugger-src). */
 :root {
   --bg: #E9ECEF; --panel: #F8F9FA; --panel-2: #EEF1F4; --line: #CDD3DA; --fg: #18202A; --muted: #56616E;
   --cur: #D99A00; --cur-bg: #FFF0BF; --range-bg: #F4EBD0;
