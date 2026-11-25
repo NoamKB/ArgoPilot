@@ -1,4 +1,4 @@
-name: deploy-registry
+name: deploy
 
 on:
   # A merge to main deploys that commit to production.
@@ -25,7 +25,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       # On a push, inputs is empty, so production's fingerprint from the repository variable is used.
       HOST_FINGERPRINT: ${{ inputs.fingerprint || vars.EC2_HOST_FINGERPRINT }}
@@ -41,12 +41,15 @@ jobs:
       # Actions are pinned to a full commit SHA: a tag can be moved, a commit cannot.
       - name: Deploy over SSH
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
         with:
           host: ${{ inputs.host || secrets.EC2_HOST }}
+          envs: POSTGRES_PASSWORD
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
           fingerprint: ${{ env.HOST_FINGERPRINT }}
-          command_timeout: 10m
+          command_timeout: 20m
           # Only the bootstrap lives here: what must happen before the repository is on the
           # instance. Everything else is in deploy/deploy.sh, versioned with the commit it deploys.
           script: |
