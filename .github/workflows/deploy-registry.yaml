@@ -1,24 +1,64 @@
 name: deploy-registry
 
 on:
+  # A merge to main deploys that commit to production.
   push:
     branches: [main]
+  # A manual run deploys the chosen branch's commit to another instance, such as a temporary
+  # clean instance for testing. Both inputs are required, so it never falls back to production.
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Public IP of the instance to deploy to"
+        required: true
+        type: string
+      fingerprint:
+        description: "That instance's ECDSA host key fingerprint, the full SHA256:... value"
+        required: true
+        type: string
+
+# Two deploys to the same instance never run at the same time; the second one waits.
+concurrency:
+  group: deploy-${{ inputs.host || 'production' }}
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # On a push, inputs is empty, so production's fingerprint from the repository variable is used.
+      HOST_FINGERPRINT: ${{ inputs.fingerprint || vars.EC2_HOST_FINGERPRINT }}
     steps:
-      - name: Deploy registry-service
-        uses: appleboy/ssh-action@v1.2.5
+      # ssh-action skips host-key verification when fingerprint is empty, so refuse to connect without one.
+      - name: Require a host-key fingerprint
+        run: |
+          if [ -z "$HOST_FINGERPRINT" ]; then
+            echo "::error::No host-key fingerprint. Set the repository variable EC2_HOST_FINGERPRINT."
+            exit 1
+          fi
+
+      # Actions are pinned to a full commit SHA: a tag can be moved, a commit cannot.
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         with:
-          host: ${{ secrets.EC2_HOST }}
+          host: ${{ inputs.host || secrets.EC2_HOST }}
           username: ubuntu
           key: ${{ secrets.EC2_SSH_KEY }}
+          fingerprint: ${{ env.HOST_FINGERPRINT }}
+          command_timeout: 10m
+          # Only the bootstrap lives here: what must happen before the repository is on the
+          # instance. Everything else is in deploy/deploy.sh, versioned with the commit it deploys.
           script: |
             set -e
+            if ! command -v git >/dev/null; then
+              sudo apt-get update
+              sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y git
+            fi
+            if [ ! -d /home/ubuntu/ArgoPilot/.git ]; then
+              git clone https://github.com/${{ github.repository }}.git /home/ubuntu/ArgoPilot
+            fi
             cd /home/ubuntu/ArgoPilot
-            git fetch origin main
+            git fetch origin ${{ github.sha }}
             git reset --hard ${{ github.sha }}
-            cd services/registry-service
-            /home/ubuntu/.local/bin/uv sync --locked
-            sudo systemctl restart registry.service
+            bash deploy/deploy.sh
