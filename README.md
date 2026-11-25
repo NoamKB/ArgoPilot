@@ -159,8 +159,9 @@ The performance checks (NFR-1.1, NFR-2.2, NFR-2.3) are described in the registry
 
 The whole system runs on one Ubuntu EC2 instance on AWS. The four services are `systemd` units and PostgreSQL is a
 Docker container; all of them start automatically when the instance boots. The instance has an Elastic IP, so its
-address stays the same after a stop and start. Give a new instance a root disk of about 16 GB: Docker, Node.js, the
-Python environments and the frontend build leave little room on the default 8 GB.
+address stays the same after a stop and start. When you choose the root disk size, leave room to grow: a deploy adds
+about 2.5 GB to a clean Ubuntu install (Docker and the PostgreSQL image, Node.js, the Python environments, the
+frontend's packages and build). Check free space with `df -h /`, and grow the volume when it runs low.
 
 | What | Listens on | Reachable from |
 | --- | --- | --- |
