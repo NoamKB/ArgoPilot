@@ -21,4 +21,4 @@ jobs:
             git reset --hard ${{ github.sha }}
             cd services/registry-service
             /home/ubuntu/.local/bin/uv sync --locked
-            sudo systemctl restart registry.service
+            sudo systemctl stop registry.service
