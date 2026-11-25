@@ -152,13 +152,50 @@ The performance checks (NFR-1.1, NFR-2.2, NFR-2.3) are described in the registry
   `protect-main` ruleset requires a pull request and both jobs to pass. weather-service, planner-service and the
   frontend have no CI workflow yet; run their checks locally (above).
 - **CD:** every push to `main` runs [`deploy-registry.yaml`](.github/workflows/deploy-registry.yaml). It connects to
-  the EC2 server over SSH, checks out exactly that commit, runs `uv sync --locked`, and restarts `registry.service`.
-  Only registry-service is deployed.
+  the EC2 server over SSH, checks out exactly that commit, and runs [`deploy/deploy.sh`](deploy/deploy.sh), which sets
+  up the instance and ends with a health check (see [How a deploy works](#how-a-deploy-works)). Only registry-service
+  is deployed.
 
 ## EC2 server
 
 registry-service runs on an Ubuntu EC2 instance on AWS, managed by `systemd`, and starts automatically when the
-instance boots.
+instance boots. The instance has an Elastic IP, so its address stays the same after a stop and start.
+
+### How a deploy works
+
+Nothing on the instance is set up by hand. A deploy brings a new, clean instance to the same state as one that was
+deployed many times:
+
+1. The workflow installs `git` if it is missing, clones the repository to `/home/ubuntu/ArgoPilot` if it is not
+   there, then fetches and checks out the run's own commit (`github.sha`).
+2. [`deploy/deploy.sh`](deploy/deploy.sh) runs on the instance as `ubuntu`. It:
+   - installs `curl`, `sqlite3` and uv if they are missing;
+   - runs `uv sync --locked`;
+   - creates `registry.db` from `seed_registry.sh` only if it does not exist, and never changes an existing one;
+   - writes `services/registry-service/.env` from scratch;
+   - installs [`deploy/systemd/registry.service`](deploy/systemd/registry.service) and restarts it.
+3. The script checks `/health` and `/v1/crops` and turns the job red if either fails, printing the service log.
+
+Edit the unit file in the repository, not on the server: every deploy overwrites `/etc/systemd/system/registry.service`.
+
+**GitHub settings** (Settings → Secrets and variables → Actions):
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `EC2_HOST` | Secret | The Elastic IP |
+| `EC2_SSH_KEY` | Secret | The whole `.pem` file |
+| `EC2_HOST_FINGERPRINT` | Variable | The instance's ECDSA host key fingerprint, `SHA256:...`. The job refuses to connect without it. |
+
+To read the fingerprint, run `ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub` on the instance, over an SSH connection
+you already trust. You can also find it in the EC2 console under Actions → Monitor and troubleshoot → Get system log.
+The fingerprint changes only when the instance is replaced.
+
+**Rollback:** open the last good **deploy-registry** run on the Actions tab and choose **Re-run all jobs**. A re-run
+deploys its own commit, not the tip of `main`.
+
+**Deploy to another instance** (for example, a temporary clean instance for testing): Actions → **deploy-registry** →
+**Run workflow**, then enter that instance's public IP and its ECDSA fingerprint. A manual run has no default host, so
+it never deploys to production by accident. The instance must accept the same SSH key.
 
 ### SSH access
 
@@ -182,32 +219,31 @@ sudo journalctl -fu registry.service      # Follow logs
 
 ### Connecting after an EC2 restart
 
-Stopping and starting an EC2 instance may change its public IP address. A normal reboot does not.
+The Elastic IP keeps the address the same after a stop and start, so `~/.ssh/config` and the `EC2_HOST` secret do not
+change.
 
 1. Open **AWS Console → EC2 → Instances**.
 2. Select the instance and click **Instance state → Start instance**, if stopped.
 3. Wait until the instance is running and its status checks pass.
-4. Copy its new **Public IPv4 address** from the instance details.
-5. On your local machine, update `HostName` in `~/.ssh/config`:
-
-   ```sshconfig
-   Host agropilot-ec2
-       HostName <NEW_PUBLIC_IP>
-       User ubuntu
-       IdentityFile ~/.ssh/ozveruach-dev-ec2-key.pem
-       IdentitiesOnly yes
-   ```
-
-6. Reconnect with `ssh agropilot-ec2`, and check that the service started by itself:
+4. Reconnect with `ssh agropilot-ec2`, and check that the service started by itself:
 
    ```bash
    sudo systemctl status registry.service
    curl http://127.0.0.1:8000/health
    ```
 
-To test the API remotely, use the new public IP: `curl http://<NEW_PUBLIC_IP>:8000/health`. Remote access needs an
-inbound Security Group rule for port 8000. If the IP changed, update the `EC2_HOST` secret of the GitHub repository
-too, or the deployment workflow can't connect.
+The SSH alias in `~/.ssh/config`:
+
+```sshconfig
+Host agropilot-ec2
+    HostName <ELASTIC_IP>
+    User ubuntu
+    IdentityFile ~/.ssh/ozveruach-dev-ec2-key.pem
+    IdentitiesOnly yes
+```
+
+To test the API remotely: `curl http://<ELASTIC_IP>:8000/health`. Remote access needs an inbound Security Group rule
+for port 8000.
 
 **Note:** stop the EC2 instance when it is not needed, to avoid compute charges. EBS storage charges may continue.
 
