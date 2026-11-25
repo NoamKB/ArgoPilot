@@ -1,4 +1,4 @@
-name: deploy-registry
+name: deploy
 
 on:
   # A merge to main deploys that commit to production.
