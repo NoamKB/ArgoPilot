@@ -18,7 +18,7 @@ The user is learning. They must be able to explain every line on a slide and eve
 
 1. Read the project `CLAUDE.md`, section **Assignment**: the line marked **current** gives the assignment and its specification URL. Use the assignment in $ARGUMENTS if given.
 2. Fetch the specification from the course repo (read-only, public): `gh api repos/alonitac/OzVeruach26/contents/tasks/<file> -H "Accept: application/vnd.github.raw"`. If it cannot be fetched, stop and say so — don't reconstruct the questions from memory.
-3. Take the **Review questions** section at the end of the page, word for word. These are the instructor's guiding questions and the backbone of the deck. If the page has none (P1 had none), say so and propose questions derived from the spec's functional and non-functional requirements; the user approves them.
+3. Take the **Review questions** section at the end of the page, word for word. These are the instructor's guiding questions and the backbone of the deck. Their number and topics change between assignments: use this assignment's questions, not an earlier deck's questions or grouping. If the page has none (P1 had none), say so and propose questions derived from the spec's functional and non-functional requirements; the user approves them.
 4. Read `docs/instructor-clarifications.md`, the entries of `docs/judgment-log.md` for this assignment, and the previous assignment's deck and prep doc in `docs/presentations/pM/` (M = N − 1) (to know what was already presented — this assignment adds one layer; present the new layer, summarise the old ones in a line).
 5. Read [references/asked-questions.md](references/asked-questions.md): questions reviewers really asked before. Each one names the pattern behind it; check every pattern against this assignment's code.
 
@@ -41,7 +41,7 @@ Go through the code of every service touched by this assignment with the checkli
 - the evidence: `path:line`, a test, or the command that measured it;
 - a label: **MEASURED** (run or measured — say how), **READ IN CODE** (seen in the code or the official docs, not run), or **REASONED** (follows from the code but nothing shows it directly). Never present a reasoned answer as measured. Never invent a number; if a number is needed and doesn't exist, say how to measure it and offer to.
 
-Don't write when something was measured or checked: dates add nothing for the reviewers or the user.
+For measurements, record the relevant environment, workload, method, and code revision when available. Keep provenance in the prep document, not necessarily on the slides. Never invent missing details.
 
 Numbers: prefer numbers already measured and documented — the presenter guide and deck notes in `docs/presentations/pN/`, the judgment log, the service READMEs. Run the test suites to get current counts (fast). Benchmarks take minutes and need running services — offer them; don't run them unasked.
 
@@ -73,7 +73,7 @@ The first P2 deck had 20 dense slides; that is what this skill exists to prevent
 3. **Client-side flow** — browser ↔ frontend server: what runs where, what the browser never sees.
 4. **Server-side happy path** — the sequence of calls between services, numbered.
 5. **Server-side error path** — what fails, where it is caught, what each layer passes up, what the user sees, where the detail is logged.
-6+. **The remaining review questions**, grouped by topic (data and security; testing; performance, load and scaling; external limits; validating the requirements). When there are more questions than slides, pair questions that share an answer — for example "why a weather service" with "rate limits", "testing the weather service" with "testing the planner", "registry down" with the error path.
+6+. **The remaining review questions**, grouped by topic (in P2: data and security; testing; performance, load and scaling; external limits; validating the requirements). When there are more questions than slides, pair questions that share an answer — in P2, for example "why a weather service" with "rate limits", "testing the weather service" with "testing the planner", "registry down" with the error path.
 Last. **Limits and next steps**, then "Questions".
 
 No backup slides: the prep doc holds the detail.
@@ -88,7 +88,7 @@ The P1 deck is the example to avoid; the approved P2 deck (`docs/presentations/p
 
 ### Notes: the most important part
 
-The notes are the user's script and study sheet: they must let the user present the slide and answer follow-ups without opening the code, in words the user can repeat and explain. Read [references/notes-guide.md](references/notes-guide.md) before writing them — it has the headings, the rules, and examples of what confused the user in the P2 dry run. In short:
+The notes are the user's study sheet first and script second: they must help the user understand what they built and explain it in their own words — not lines to memorise — so they can present the slide and answer follow-ups without opening the code. Read [references/notes-guide.md](references/notes-guide.md) before writing them — it has the headings, the rules, and examples of what confused the user in the P2 dry run. In short:
 
 - Start with **על מה השקף** (one line), then the question it answers if there is one. Leave out any heading that doesn't apply — never write "no question" or "load is not relevant".
 - Slide 1's notes open with the system overview: what earlier assignments built, what this one added.

@@ -33,7 +33,7 @@ Go through each category for every service touched by the assignment. The questi
 
 ## Load and scaling
 
-- What is measured (tool, rate, p95) and what is not. Throughput ceiling if known, and which hop saturates first if known.
+- What is measured (tool, rate, p95, environment, code revision) and what is not. Throughput ceiling if known, and which hop saturates first if known.
 - Concurrency limits: uvicorn processes (one by default), the thread pool for `def` endpoints (40), database pool size and timeout, HTTP client connection limits.
 - Under overload: do requests queue, time out, or get rejected? What does the user see?
 - Several instances of each service behind a load balancer: which services are stateless and scale out; which state breaks (in-memory caches become per-instance; SQLite can't be shared; each instance multiplies DB connections).

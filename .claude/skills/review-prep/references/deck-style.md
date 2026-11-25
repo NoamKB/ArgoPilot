@@ -31,6 +31,6 @@ The first P2 deck carried 100–220 words on most slides with 11 pt text; that i
 - a table: at most 4 rows and 3 columns, cells of a few words — a table of full sentences belongs in the notes;
 - body text at least 14 pt, labels at least 12 pt;
 - no paragraph on a slide;
-- numbers only when they mean something the reviewer cares about — one number per point (for example the p95 of the main call, or one p95 per hop to show where time goes), never a spread of percentiles or every measurement taken; no measurement dates.
+- numbers only when they mean something the reviewer cares about — one number per point (for example the p95 of the main call, or one p95 per hop to show where time goes), never a spread of percentiles or every measurement taken; the measurement's provenance belongs in the prep document, not necessarily on the slide.
 
 If a slide needs more, it is either two points (split or drop one) or detail that belongs in the notes.

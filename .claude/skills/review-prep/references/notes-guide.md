@@ -1,6 +1,6 @@
 # Writing the speaker notes
 
-The notes are the user's script and study sheet. The user reads them before the review and glances at them while presenting; afterwards the reviewers ask follow-ups. A sentence the user can't explain in their own words is worse than no sentence. Write for a learner who knows Python well, knows the system at a high level, and is still building fluency in infrastructure terms.
+The notes are the user's study sheet first and script second: they should help the user understand what they built and explain it in their own words, not memorise lines. The user reads them before the review and glances at them while presenting; afterwards the reviewers ask follow-ups. A sentence the user can't explain in their own words is worse than no sentence. Write for a learner who knows Python well, knows the system at a high level, and is still building fluency in infrastructure terms.
 
 ## Headings, in this order (Hebrew, bold)
 
@@ -40,7 +40,7 @@ Before anything about the title slide, two or three sentences that place this as
 - Bad: "p50 9 ms, p75 10 ms, p90 11 ms, p95 12 ms, p99 15 ms" — a list of percentiles shows effort, not understanding.
 - Good: "p95 of the weather call from the cache: 8.73 ms — 95 of 100 requests answered faster than that, less than a tenth of the 100 ms target." One number, its meaning, and why it matters.
 - Good: the p95 of each hop side by side (registry, weather, planner, frontend), because together they answer "where is the time spent?".
-- No dates: don't write when something was measured or checked.
+- Say briefly how the number was obtained; the full provenance (environment, workload, method, code revision) is in the prep document.
 
 **No raw identifiers in the spoken text.** Test function names, `path:line`, and environment-variable line numbers confuse more than they prove.
 - Bad: "(נמדד: test_clearly_out_of_season_plot_is_409_without_soil_emitter_or_weather_calls)"
