@@ -151,15 +151,25 @@ The performance checks (NFR-1.1, NFR-2.2, NFR-2.3) are described in the registry
   the registry tests on SQLite and PostgreSQL with 100% branch coverage, and a dependency vulnerability audit. The
   `protect-main` ruleset requires a pull request and both jobs to pass. weather-service, planner-service and the
   frontend have no CI workflow yet; run their checks locally (above).
-- **CD:** every push to `main` runs [`deploy-registry.yaml`](.github/workflows/deploy-registry.yaml). It connects to
-  the EC2 server over SSH, checks out exactly that commit, and runs [`deploy/deploy.sh`](deploy/deploy.sh), which sets
-  up the instance and ends with a health check (see [How a deploy works](#how-a-deploy-works)). Only registry-service
-  is deployed.
+- **CD:** every push to `main` runs [`deploy.yaml`](.github/workflows/deploy.yaml). It connects to the EC2 server
+  over SSH, checks out exactly that commit, and runs [`deploy/deploy.sh`](deploy/deploy.sh), which sets up the
+  instance, deploys the whole system and ends with health checks (see [How a deploy works](#how-a-deploy-works)).
 
 ## EC2 server
 
-registry-service runs on an Ubuntu EC2 instance on AWS, managed by `systemd`, and starts automatically when the
-instance boots. The instance has an Elastic IP, so its address stays the same after a stop and start.
+The whole system runs on one Ubuntu EC2 instance on AWS. The four services are `systemd` units and PostgreSQL is a
+Docker container; all of them start automatically when the instance boots. The instance has an Elastic IP, so its
+address stays the same after a stop and start. Give a new instance a root disk of about 16 GB: Docker, Node.js, the
+Python environments and the frontend build leave little room on the default 8 GB.
+
+| What | Listens on | Reachable from |
+| --- | --- | --- |
+| `frontend` | `0.0.0.0:3000` | The internet: open `http://<ELASTIC_IP>:3000` |
+| `registry-service`, `weather-service`, `planner-service` | `127.0.0.1:8000`, `:8001`, `:8002` | The instance only |
+| PostgreSQL (container `agropilot-pg`, database `registry`) | `127.0.0.1:5436` | The instance only |
+
+The Security Group needs inbound rules for 22 (SSH) and 3000 only. The other ports listen on `127.0.0.1`, so they are
+not reachable from outside even with a rule.
 
 ### How a deploy works
 
@@ -169,14 +179,22 @@ deployed many times:
 1. The workflow installs `git` if it is missing, clones the repository to `/home/ubuntu/ArgoPilot` if it is not
    there, then fetches and checks out the run's own commit (`github.sha`).
 2. [`deploy/deploy.sh`](deploy/deploy.sh) runs on the instance as `ubuntu`. It:
-   - installs `curl`, `sqlite3` and uv if they are missing;
-   - runs `uv sync --locked`;
-   - creates `registry.db` from `seed_registry.sh` only if it does not exist, and never changes an existing one;
-   - writes `services/registry-service/.env` from scratch;
-   - installs [`deploy/systemd/registry.service`](deploy/systemd/registry.service) and restarts it.
-3. The script checks `/health` and `/v1/crops` and turns the job red if either fails, printing the service log.
+   - installs `curl`, Docker and uv if they are missing, and Node.js 24 from the signed NodeSource apt repository if
+     the installed Node is not version 24;
+   - creates the `agropilot-pg` container with the named volume `agropilot-pg-data` if it does not exist, otherwise
+     makes sure it is running, and waits until PostgreSQL accepts connections;
+   - runs `uv sync --locked` for the three Python services and writes their `.env` files from scratch: the registry's
+     with the PostgreSQL URL, weather's and planner's as a copy of `.env.example`;
+   - runs `scripts.setup_postgres`, which adds missing tables and catalogue rows and never changes existing rows, and
+     loads the demo farms and plots only when the database has no farms;
+   - runs `npm ci` and `npm run build` for the frontend, with `.env.local` copied from `.env.example`;
+   - installs the four unit files from [`deploy/systemd/`](deploy/systemd/) and restarts them in dependency order:
+     registry, weather, planner, frontend.
+3. The script checks each service (`/health` on 8000, 8001 and 8002, `/v1/crops`, and the frontend's home page) and
+   turns the job red if one fails, printing that service's log.
 
-Edit the unit file in the repository, not on the server: every deploy overwrites `/etc/systemd/system/registry.service`.
+Edit the unit files in the repository, not on the server: every deploy overwrites them in `/etc/systemd/system/`.
+The old SQLite database, `services/registry-service/registry.db`, is left on the instance untouched as a backup.
 
 **GitHub settings** (Settings → Secrets and variables → Actions):
 
@@ -185,15 +203,21 @@ Edit the unit file in the repository, not on the server: every deploy overwrites
 | `EC2_HOST` | Secret | The Elastic IP |
 | `EC2_SSH_KEY` | Secret | The whole `.pem` file |
 | `EC2_HOST_FINGERPRINT` | Variable | The instance's ECDSA host key fingerprint, `SHA256:...`. The job refuses to connect without it. |
+| `POSTGRES_PASSWORD` | Secret | The database password, from `openssl rand -hex 24`. The deploy refuses to start without it. |
+
+Keep a copy of `POSTGRES_PASSWORD`, and do not change it after the first deploy. PostgreSQL takes the password only
+when it creates the volume, so after a change the registry would connect with a password the database does not know.
 
 To read the fingerprint, run `ssh-keygen -lf /etc/ssh/ssh_host_ecdsa_key.pub` on the instance, over an SSH connection
 you already trust. You can also find it in the EC2 console under Actions → Monitor and troubleshoot → Get system log.
 The fingerprint changes only when the instance is replaced.
 
-**Rollback:** open the last good **deploy-registry** run on the Actions tab and choose **Re-run all jobs**. A re-run
-deploys its own commit, not the tip of `main`.
+**Rollback:** open the last good **deploy** run on the Actions tab and choose **Re-run all jobs**. A re-run deploys
+its own commit, not the tip of `main`. Do not re-run a **deploy-registry** run (the workflow's name before the
+PostgreSQL deploy): it would switch the registry back to SQLite, which has only the seed data. The PostgreSQL data
+stays in its volume, but nothing written after the switch would be visible.
 
-**Deploy to another instance** (for example, a temporary clean instance for testing): Actions → **deploy-registry** →
+**Deploy to another instance** (for example, a temporary clean instance for testing): Actions → **deploy** →
 **Run workflow**, then enter that instance's public IP and its ECDSA fingerprint. A manual run has no default host, so
 it never deploys to production by accident. The instance must accept the same SSH key.
 
@@ -204,9 +228,9 @@ ssh -i ~/.ssh/ozveruach-dev-ec2-key.pem ubuntu@<EC2_PUBLIC_IP>
 ssh agropilot-ec2                         # the same, with the SSH alias below
 ```
 
-### Managing the service
+### Managing the services
 
-Run these commands on the EC2 instance:
+Run these commands on the EC2 instance. The units are `registry`, `weather`, `planner` and `frontend`:
 
 ```bash
 sudo systemctl status registry.service    # Check status
@@ -215,6 +239,10 @@ sudo systemctl stop registry.service      # Stop service
 sudo systemctl restart registry.service   # Restart service
 sudo journalctl -u registry.service -n 50 # View recent logs
 sudo journalctl -fu registry.service      # Follow logs
+
+sudo docker ps                            # Is the agropilot-pg container running?
+sudo docker logs agropilot-pg --tail 50   # PostgreSQL logs
+sudo docker exec -it agropilot-pg psql -U postgres -d registry   # SQL shell on the registry database
 ```
 
 ### Connecting after an EC2 restart
@@ -225,10 +253,11 @@ change.
 1. Open **AWS Console → EC2 → Instances**.
 2. Select the instance and click **Instance state → Start instance**, if stopped.
 3. Wait until the instance is running and its status checks pass.
-4. Reconnect with `ssh agropilot-ec2`, and check that the service started by itself:
+4. Reconnect with `ssh agropilot-ec2`, and check that everything started by itself:
 
    ```bash
-   sudo systemctl status registry.service
+   systemctl is-active registry weather planner frontend   # expect "active" four times
+   sudo docker ps --filter name=agropilot-pg
    curl http://127.0.0.1:8000/health
    ```
 
@@ -242,8 +271,8 @@ Host agropilot-ec2
     IdentitiesOnly yes
 ```
 
-To test the API remotely: `curl http://<ELASTIC_IP>:8000/health`. Remote access needs an inbound Security Group rule
-for port 8000.
+To check the system from outside, open `http://<ELASTIC_IP>:3000` in a browser. The APIs answer only on the instance
+itself.
 
 **Note:** stop the EC2 instance when it is not needed, to avoid compute charges. EBS storage charges may continue.
 
