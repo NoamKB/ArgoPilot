@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-sans);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  /* AgroPilot colours: water is the one bold accent; leaf, stale and error carry status. */
+  --color-water: var(--water);
+  --color-water-foreground: var(--water-foreground);
+  --color-leaf: var(--leaf);
+  --color-leaf-soft: var(--leaf-soft);
+  --color-stale: var(--stale);
+  --color-stale-soft: var(--stale-soft);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Cool, earthy and high-contrast for reading outdoors in bright light. */
+:root {
+  --background: #f3f6f1; /* leaf-grey paper */
+  --foreground: #33291f; /* loam brown */
+  --card: #ffffff;
+  --card-foreground: #33291f;
+  --popover: #ffffff;
+  --popover-foreground: #33291f;
+  --primary: #33291f;
+  --primary-foreground: #f3f6f1;
+  --secondary: #e6ebe2;
+  --secondary-foreground: #33291f;
+  --muted: #e6ebe2;
+  --muted-foreground: #5f5649;
+  --accent: #e6ebe2;
+  --accent-foreground: #33291f;
+  --destructive: #b3261e;
+  --border: #d3dacd;
+  --input: #d3dacd;
+  --ring: #1e6bb0;
+  --radius: 0.5rem;
+  --water: #1e6bb0;
+  --water-foreground: #ffffff;
+  --leaf: #4a7a36;
+  --leaf-soft: #e3eddc;
+  --stale: #8a5f00; /* amber, darkened for text contrast */
+  --stale-soft: #fbf0d4;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}

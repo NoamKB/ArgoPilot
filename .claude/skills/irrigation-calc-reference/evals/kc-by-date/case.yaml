@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: kc-by-date
+expected_outcome: |
+  (a) day 50, development, 0.825. (b) day 32, development, exact 0.6225, rounded half-up to 0.623. (c) day 163, late season, 0.998.

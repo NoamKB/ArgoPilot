@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: half-up-ties
+expected_outcome: |
+  Days 90–96, mid-season, Kc 1.15. TAW 58.1, threshold 29.05, ETc 5.175. Only day 6 irrigates: 38062.5 L and 913.5 min exactly, so half-up rounding gives litres 38063 and run_minutes 914. Bucket levels 52.925, 48.25, 43.075, 37.9, 32.725, 52.925, 47.75.

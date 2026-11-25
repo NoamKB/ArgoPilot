@@ -5,7 +5,7 @@ unchanged, even if its definition differs, and an existing catalogue row is not 
 
 Run from services/registry-service, with DATABASE_URL set in the environment or .env:
     uv run python -m scripts.setup_postgres          # schema + catalogues
-    uv run python -m scripts.setup_postgres --demo   # also the demo farms and plots (development only)
+    uv run python -m scripts.setup_postgres --demo   # also the demo farms and plots: the 15 seed rows (FR-2.2)
 """
 
 import argparse
@@ -15,7 +15,7 @@ from sqlalchemy import Connection, text
 
 from db import display_url, get_database_url, get_engine, parse_database_url
 
-DEMO_WARNING = "WARNING: inserting demo farms and plots. Never use --demo on a production database."
+DEMO_WARNING = "WARNING: inserting demo farms and plots. Do not use --demo on a database with real grower data."
 
 # Same tables as seed_registry.sh, with two PostgreSQL-specific choices:
 # - DOUBLE PRECISION, not REAL: PostgreSQL's REAL is a 4-byte float (about 6 digits)
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
         "Initial schema setup only. Not a migration tool."
     )
     parser.add_argument(
-        "--demo", action="store_true", help="also insert the 2 demo farms and 4 demo plots (development only)"
+        "--demo", action="store_true", help="also insert the 2 demo farms and 4 demo plots (not on a database with real grower data)"
     )
     args = parser.parse_args(argv)
 

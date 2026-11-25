@@ -48,6 +48,34 @@ def test_non_uuid_farm_id_returns_422(client):
     assert client.get("/v1/farms/not-a-uuid").status_code == 422
 
 
+def test_farm_area_sums_its_plots(client):
+    # Seed: North block 1000 + East block 800.
+    response = client.get(f"/v1/farms/{DEMO_FARM_ID}/area")
+
+    assert response.status_code == 200
+    assert response.json() == {"farm_id": DEMO_FARM_ID, "total_area_m2": 1800}
+
+
+def test_farm_area_without_plots_is_zero(client):
+    farm_id = client.post("/v1/farms", json={"name": "Empty farm"}).json()["id"]
+
+    response = client.get(f"/v1/farms/{farm_id}/area")
+
+    assert response.status_code == 200
+    assert response.json() == {"farm_id": farm_id, "total_area_m2": 0}
+
+
+def test_farm_area_of_unknown_farm_returns_404(client):
+    response = client.get(f"/v1/farms/{UNKNOWN_FARM_ID}/area")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Farm not found"}
+
+
+def test_farm_area_with_non_uuid_id_returns_422(client):
+    assert client.get("/v1/farms/not-a-uuid/area").status_code == 422
+
+
 def test_create_farm_then_read_it(client):
     response = client.post("/v1/farms", json={"name": "North farm"})
 

@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: p2-review-deck
+expected_outcome: |
+  A deck of at most 10 slides (fewer is fine) that tells the P2 story through the architecture and covers
+  all nine P2 review questions from tasks/p2.md. English slide text, a light plain look (not the P1 dark card
+  style), about 30 words of running text per slide outside the visual, and only
+  numbers that carry meaning, with their provenance (environment, workload, method, code revision when
+  available) in the prep document. Hebrew right-to-left notes on every slide, using only the notes-guide headings
+  that have content; slide 1's notes open with the P1 to P2 overview; terms are explained; no test function
+  names or line numbers in the spoken text. A Hebrew prep document that answers the review questions and the
+  asked-questions patterns (health check timing, maximum load, several instances, weather cache stampede,
+  shared external cache) with evidence and MEASURED / READ IN CODE / REASONED labels. Nothing committed and
+  no existing file overwritten.

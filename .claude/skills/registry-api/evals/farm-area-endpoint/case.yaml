@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: farm-area-endpoint
+expected_outcome: |
+  A /v1 route that returns the total plot area (1800 for the demo farm) with no extra fields,
+  404 {"detail": "Farm not found"} with FastAPI's default JSON body for an unknown farm, 0 (not 404)
+  for a farm with no plots, tests for the success case and every failure case, and a passing pytest run.

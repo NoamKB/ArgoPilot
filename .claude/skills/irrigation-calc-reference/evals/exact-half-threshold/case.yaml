@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: exact-half-threshold
+expected_outcome: |
+  TAW 42, threshold 21. Day 5 ends at exactly 21.000 and does not irrigate. Day 6 irrigates 21000 L, 756 min, bucket 37.800. Day 7 bucket 33.600.

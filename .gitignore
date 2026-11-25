@@ -29,5 +29,6 @@ htmlcov/
 .vscode/*
 !.vscode/launch.json
 
-# Local Claude Code settings
+# Local Claude Code settings and session handoffs
 .claude/settings.local.json
+.claude/handoffs/

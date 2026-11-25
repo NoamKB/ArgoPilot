@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from db import DbConnection, violated_constraint
 from repositories import farms as farm_repository
-from schemas import Farm, FarmCreate, FarmUpdate
+from schemas import Farm, FarmArea, FarmCreate, FarmUpdate
 
 router = APIRouter(prefix="/v1/farms", tags=["farms"])
 
@@ -31,6 +31,13 @@ def list_farms(conn: DbConnection):
 @router.get("/{farm_id}", response_model=Farm)
 def get_farm(farm_id: UUID, conn: DbConnection):
     return get_farm_or_404(conn, farm_id)
+
+
+@router.get("/{farm_id}/area", response_model=FarmArea)
+def get_farm_area(farm_id: UUID, conn: DbConnection):
+    # Check the farm first: an unknown farm is 404, a farm with no plots is 0.
+    get_farm_or_404(conn, farm_id)
+    return {"farm_id": farm_id, "total_area_m2": farm_repository.total_plot_area(conn, str(farm_id))}
 
 
 @router.patch("/{farm_id}", response_model=Farm)

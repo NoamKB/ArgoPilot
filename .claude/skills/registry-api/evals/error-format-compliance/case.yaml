@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: error-format-compliance
+expected_outcome: |
+  No code change: the instructor clarification says FastAPI's default error responses satisfy FR-1.4.
+  The answer cites that clarification and does not add problem+json, a code field, or exception handlers.

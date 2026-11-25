@@ -12,6 +12,12 @@ def get_farm(conn: Connection, farm_id: str) -> dict | None:
     return dict(row) if row else None
 
 
+def total_plot_area(conn: Connection, farm_id: str) -> float:
+    # SUM over zero rows is NULL; COALESCE turns it into 0.
+    query = text("SELECT COALESCE(SUM(area_m2), 0) FROM plots WHERE farm_id = :farm_id")
+    return conn.execute(query, {"farm_id": farm_id}).scalar_one()
+
+
 def create_farm(conn: Connection, name: str) -> dict:
     farm = {"id": str(uuid4()), "name": name}
     conn.execute(text("INSERT INTO farms (id, name) VALUES (:id, :name)"), farm)

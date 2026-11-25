@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgroPilot P2 Explorer</title>
+<!-- Fully offline: no external fonts, scripts or styles. explorer.css and explorer.js are pasted in by build_explorer.py. -->
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <p class="eyebrow ltr" dir="ltr">AgroPilot · P2 · frontend → planner-service → registry-service, weather-service</p>
+    <h1>איך נוצרת תוכנית ההשקיה</h1>
+    <p class="lede">כלי לימוד שנבנה מהרצה אמיתית של הקוד. כל ערך כאן נמדד מהקוד עצמו בזמן בניית הדף, עם registry ו-weather מדומים כמו בבדיקות. בחרו מסלול לימוד, או חקרו חופשי.</p>
+    <p class="build" id="build"></p>
+  </header>
+
+  <nav class="bar" aria-label="ניווט">
+    <div class="views" id="views" role="tablist" aria-label="תצוגות"></div>
+    <div class="tools">
+      <select id="pathSel" aria-label="מסלול לימוד"></select>
+      <button type="button" id="bExplorer" aria-pressed="false" title="המעקב הגולמי: קוד מלא, כל המשתנים ומחסנית הקריאות">מצב חוקר</button>
+      <button type="button" id="bPresenter" aria-pressed="false" title="טקסט גדול, בלי פרטים מתקדמים">מצב הצגה</button>
+      <button type="button" id="bTheme" title="ערכת צבעים">ערכה: אוטומטית</button>
+    </div>
+  </nav>
+
+  <section class="pathbar" id="pathbar" aria-label="מסלול לימוד" hidden>
+    <span class="pname" id="pName"></span>
+    <span class="pcount" id="pCount"></span>
+    <span class="dots" id="pDots"></span>
+    <span class="ptitle" id="pTitle"></span>
+    <span class="pnav"><button type="button" id="pBack">הקודם</button><button type="button" id="pNext">הבא</button></span>
+  </section>
+
+  <main>
+    <section data-view="map" hidden class="col">
+      <div class="seg" id="seg" role="tablist" aria-label="תצוגת ארכיטקטורה">
+        <button type="button" role="tab" data-panel="system">מפת המערכת</button>
+        <button type="button" role="tab" data-panel="decisions">זרימת ההחלטות</button>
+      </div>
+      <div id="panelSystem" class="col">
+        <p class="hint">כל קופסה היא שירות נפרד. חץ אומר מי פונה למי בבקשת HTTP; התשובה חוזרת באותה דרך. לחצו על שירות כדי לראות מה הוא עושה, מה נכנס ויוצא, ואיפה הקוד.</p>
+        <div class="map" id="map"><svg class="wires" id="wires" aria-hidden="true"></svg></div>
+        <section class="card svc" id="svcPanel" aria-live="polite"></section>
+      </div>
+      <div id="panelDecisions" class="col" hidden>
+        <p class="hint">מה קורה לבקשת תוכנית אחת, צעד אחר צעד, ואיפה היא יכולה להיעצר. בחרו תרחיש כדי להדליק את המסלול שהוא עבר בפועל בריצה האמיתית, או לחצו על תוצאה.</p>
+        <div class="scen" id="decScen" role="group" aria-label="תרחיש"></div>
+        <section class="card outcome" id="decOutcome" aria-live="polite" hidden></section>
+        <ol class="dflow" id="dflow"></ol>
+      </div>
+    </section>
+
+    <section data-view="flow" hidden class="col">
+      <section class="card wintro guided" id="wIntro"></section>
+      <div class="notice raw" id="flowNotice"></div>
+      <div class="scen" id="scen" role="group" aria-label="תרחיש"></div>
+      <div class="toolbar guided" role="toolbar" aria-label="מעבר בין הצעדים">
+        <button type="button" id="wBack">הצעד הקודם</button>
+        <button type="button" id="wNext" class="primary">הצעד הבא</button>
+        <span class="counter" id="wCount"></span>
+        <span class="wdots" id="wDots"></span>
+        <span class="keys"><kbd>↓</kbd>/<kbd>F10</kbd> הבא · <kbd>↑</kbd> הקודם</span>
+      </div>
+      <div class="lanesbar guided" id="wLanes" aria-hidden="true"></div>
+      <div class="wgrid guided">
+        <section class="card wexp" id="wExp" aria-live="polite"></section>
+        <section class="card wobs" id="wObs"></section>
+      </div>
+      <div class="toolbar raw" role="toolbar" aria-label="פקדי המעקב">
+        <button type="button" id="bRestart" title="Home">מההתחלה</button>
+        <button type="button" id="bBack" title="↑">אחורה</button>
+        <button type="button" id="bOver" class="primary" title="F10 או ↓: השורה הבאה בפונקציה הזו, בלי להיכנס לפונקציות שהיא קוראת">צעד</button>
+        <button type="button" id="bInto" title="F11: גם לתוך פונקציה שנקראת">כניסה לפונקציה</button>
+        <button type="button" id="bOut" title="Shift+F11: עד שהפונקציה הזו מסתיימת">יציאה מהפונקציה</button>
+        <button type="button" id="bPlay" aria-pressed="false">הפעלה</button>
+        <select id="speed" aria-label="מהירות"><option value="2400">איטי</option><option value="1200" selected>רגיל</option><option value="500">מהיר</option></select>
+        <span class="sep" aria-hidden="true"></span>
+        <span class="counter" id="counter"></span>
+        <input type="range" class="scrub" id="scrub" min="0" value="0" aria-label="מיקום במעקב">
+        <span class="pill" id="status"></span>
+        <span class="keys"><kbd>F10</kbd>/<kbd>↓</kbd> צעד · <kbd>F11</kbd> כניסה · <kbd>↑</kbd> אחורה</span>
+      </div>
+      <div class="flowgrid">
+        <div class="col">
+          <section class="card explain raw" id="explain" aria-live="polite">
+            <div class="ex-head"><span class="act" id="act"></span><span class="chip" id="thread"></span><span id="exTag"></span></div>
+            <h3 id="exTitle"></h3>
+            <dl class="parts">
+              <div><dt>מה אנחנו מנסים להשיג?</dt><dd id="pGoal"></dd></div>
+              <div><dt>מה קורה ולמה?</dt><dd id="pWhat"></dd></div>
+              <div><dt>נכנס / יוצא</dt><dd id="pIo"></dd></div>
+              <div><dt>איפה בקוד</dt><dd><div class="whereline" id="pWhere"></div><div class="excerpt"><div class="code" id="excerpt"></div></div></dd></div>
+            </dl>
+          </section>
+          <section class="card adv" id="varsCard"><h2>כל המשתנים בפונקציה <span id="varsTag"></span></h2><ul class="vars" id="vars"></ul></section>
+          <section class="card adv"><h2><span class="term" data-term="callstack" tabindex="0" role="button">מחסנית קריאות</span></h2><ul class="stack" id="stack"></ul></section>
+        </div>
+        <div class="col">
+          <section class="card adv" id="editor">
+            <div class="tabs" id="tabs" role="tablist" aria-label="קבצים"></div>
+            <div class="pathline" id="edPath"></div>
+            <div class="code tall" id="edCode" tabindex="0" aria-label="קוד המקור"></div>
+          </section>
+          <section class="card rr"><h2>הבקשה והתשובה <span id="rrTag"></span></h2><div class="body" id="rr"></div></section>
+        </div>
+      </div>
+    </section>
+
+    <section data-view="calc" hidden class="col">
+      <section class="card wintro" id="cIntro"></section>
+      <nav class="cnav" id="cNav" aria-label="חלקי החישוב"></nav>
+      <section class="card cpick" id="cPick" aria-label="בחירת דוגמה"></section>
+      <div class="col" id="calcBody"></div>
+    </section>
+
+    <section data-view="sources" hidden>
+      <div class="sgrid">
+        <section class="card"><h2>מאיפה מגיע כל כלל</h2><div class="body"><ul class="legend-list" id="srcLegend"></ul></div></section>
+        <section class="card"><h2>מאיפה מגיע כל מספר</h2><div class="body"><ul class="legend-list" id="valLegend"></ul><div id="valExample"></div></div></section>
+        <section class="card"><h2>מושגים</h2><div class="body"><dl class="gloss" id="gloss"></dl></div></section>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="pop" id="pop" role="dialog" aria-modal="false" hidden></div>
+<dialog class="src" id="srcDlg" aria-label="קובץ מקור">
+  <header><span class="mono" id="srcPath"></span><button type="button" id="srcClose">סגירה</button></header>
+  <div class="code" id="srcCode"></div>
+</dialog>
+
+<script id="data" type="application/json">__DATA_JSON__</script>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

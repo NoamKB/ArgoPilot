@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: out-of-season-plot
+expected_outcome: |
+  (a) days 267–273, past the 180-day tomato season → 409. (b) days 206–212, the plan runs past day 210 → 409. (c) days 206–210 → 200. (d) starts 3 days before planting (day −2) → 409. (e) days 1–7 → 200. Every 409 body is {"code": "PLOT_OUT_OF_SEASON", "detail": "The plot is outside its growing season."}, and no 409 case gives plan days or a Kc.
