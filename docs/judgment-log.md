@@ -232,3 +232,14 @@ Significant engineering decisions made during AI-assisted development of AgroPil
 - **Decision:** The limit is 24 hours (`FORECAST_MAX_STALE_HOURS`). The service serves stale data only when the provider fails, the cached forecast is no older than 24 hours, and it covers every requested date from today. Otherwise it returns `503 UNAVAILABLE` with `Retry-After`.
 - **Reasoning:** 24 hours balances service availability against the risk of planning irrigation with outdated weather data. The grower sees that the forecast is stale.
 - **Tradeoffs:** If Open-Meteo is down for more than a day, the planner gets no forecast and cannot give a plan. A stale forecast from before local midnight has one day fewer, so a 7-day request can fail while shorter requests still work.
+
+## JL-022: Start production PostgreSQL from the demo seed; import the extra demo plots once, outside CD
+
+- **Date:** 2026-11-25
+- **Assignment:** CD tutorial exercises (after P2): deploy the full stack
+- **Context:** Moving production from SQLite to PostgreSQL. A read-only check showed the EC2 `registry.db` holds only the seed data, identical to `setup_postgres --demo`. The 4 extra farms and 22 extra plots used for the frontend demo exist only in local PostgreSQL.
+- **AI recommendation:** First, a SQLite-to-PostgreSQL migration script, run by the pipeline once. After the check, no migration: start from `--demo`, and leave the local extra plots out of production.
+- **Alternatives:** A migration script (would copy nothing new, adds code and tests, and could bring deleted rows back if it ran again). Adding the extra plots to the seed or the pipeline (rejected: FR-2.2 and JL-015 keep the 15 seed rows).
+- **Decision:** The pipeline creates PostgreSQL and loads `--demo` only when `farms` is empty. The extra farms and plots, excluding the empty "Persistence check farm", are copied once by hand with a guarded SQL file. The file runs in one transaction, refuses unless the target is exactly the seed, and checks for 6 farms and 26 plots. `registry.db` stays on EC2 as a backup.
+- **Reasoning:** The data already reproduced by the seed needs no code. The demo plots are useful, but they are demo data, not production data, so they stay out of the recurring pipeline.
+- **Tradeoffs:** After a full rebuild, the import file must be applied again by hand. Switching back to SQLite would show only the seed, without the imported plots or anything written to PostgreSQL afterwards.
