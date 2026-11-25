@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>פריסת המערכת המלאה</title>
+<style>
+:root{--ink:#17332e;--muted:#486759;--bg:#fafaf5;--card:#fff;--line:#a2b7ad;--accent:#2e7764;--chip:#e6f0e8;--chip-ink:#206753;--done:#2e7764;--todo:#a3661a}
+@media (prefers-color-scheme:dark){:root{--ink:#e3ece7;--muted:#9fb6aa;--bg:#141a18;--card:#1c2421;--line:#3c4d46;--accent:#5fb89f;--chip:#24332d;--chip-ink:#8fd3bd;--done:#5fb89f;--todo:#e0a95a}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.65 system-ui,sans-serif;color:var(--ink);background:var(--bg)}
+main{max-width:820px;margin:auto;padding:clamp(16px,4vw,32px)}
+h1{font-size:1.6rem;line-height:1.25;margin:0 0 4px}
+h2{line-height:1.25;margin:.4em 0}
+h3{margin:1.6em 0 .4em}
+p.lead{color:var(--muted);margin-top:0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.diagram{direction:ltr;overflow-x:auto;text-align:center}
+.diagram pre.mermaid{margin:0;background:none}
+nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button,select{font:inherit;color:inherit;border:1px solid var(--line);padding:6px 12px;background:var(--card);border-radius:7px;cursor:pointer}
+select{max-width:100%}
+button:disabled{opacity:.4;cursor:default}
+section#panel{min-height:330px}
+aside{border-inline-start:3px solid var(--accent);padding-inline-start:14px;margin-top:12px}
+small{color:var(--muted)}
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-weight:600;color:var(--chip-ink);margin:8px 0}
+.flow bdi{background:var(--chip);padding:4px 10px;border-radius:5px}
+.status{display:inline-block;font-size:.85rem;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+.status.done{color:var(--done)}
+.status.todo{color:var(--todo)}
+footer{display:flex;gap:8px;margin-top:8px}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th,td{text-align:start;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+code{direction:ltr;unicode-bidi:isolate;font-size:.9em;background:var(--chip);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<main>
+  <h1>PR 2: כל המערכת עולה מ־merge אחד</h1>
+  <p class="lead">ב־PR 1 השרת ידע להקים את עצמו, אבל הריץ רק את ה־Registry עם SQLite. ב־PR 2 הוא מקים את כל המערכת: ארבעה שירותים ומסד נתונים PostgreSQL.</p>
+
+  <h3>התמונה הגדולה: מה ירוץ על השרת</h3>
+  <div class="card diagram">
+<pre class="mermaid">
+flowchart LR
+  phone["Phone / browser"] -- ":3000 (open)" --> fe["frontend<br/>Next.js"]
+  subgraph ec2["EC2 instance"]
+    fe --> reg["registry<br/>127.0.0.1:8000"]
+    fe --> pl["planner<br/>127.0.0.1:8002"]
+    fe --> we["weather<br/>127.0.0.1:8001"]
+    pl --> reg
+    pl --> we
+    reg --> pg[("PostgreSQL<br/>Docker container<br/>127.0.0.1:5436")]
+    pg -.- vol[("volume<br/>agropilot-pg-data")]
+  end
+  we --> om["Open-Meteo"]
+</pre>
+  </div>
+  <p><small>רק ה־frontend פתוח לאינטרנט. השאר מקשיבים ל־<code>127.0.0.1</code>, כלומר רק לבקשות מתוך השרת עצמו, כמו טלפון פנימי.</small></p>
+
+  <h3>איך נראית פריסה אחת</h3>
+  <div class="card diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant You as You
+  participant GH as GitHub Actions (runner)
+  participant EC2 as EC2 instance
+  You->>GH: Merge PR to main
+  GH->>EC2: SSH, after checking the server's fingerprint
+  GH->>EC2: POSTGRES_PASSWORD (from Secrets)
+  EC2->>EC2: git checkout of the merged commit
+  EC2->>EC2: deploy.sh: install, configure, build, restart
+  EC2->>EC2: health check of every service
+  EC2-->>GH: all OK = green, otherwise red + the failing log
+</pre>
+  </div>
+
+  <h3>השלבים, אחד אחד</h3>
+  <nav>
+    <label for="pick">בחירת שלב</label>
+    <select id="pick"></select>
+  </nav>
+  <section class="card" aria-live="polite" id="panel"></section>
+  <footer><button id="prev">→ הקודם</button><button id="next">הבא ←</button></footer>
+
+  <h3>מילון קצר</h3>
+  <div class="card">
+  <table>
+    <tr><th>מונח</th><th>מה זה, במשפט אחד</th></tr>
+    <tr><td>idempotent</td><td>אפשר להריץ שוב ושוב ומקבלים אותה תוצאה. שרת חדש ושרת שנפרס 20 פעם מגיעים לאותו מצב.</td></tr>
+    <tr><td>systemd / unit</td><td>"מנהל המשמרות" של Linux. ה־unit הוא קובץ קטן שאומר לו איך להפעיל שירות ולהחזיר אותו אחרי קריסה או אתחול.</td></tr>
+    <tr><td>Docker / container / volume</td><td>"קופסה" שמריצה תוכנה מבודדת (כאן PostgreSQL). ה־volume הוא המקום שבו הנתונים נשמרים מחוץ לקופסה, כך שהם שורדים גם אם היא נמחקת.</td></tr>
+    <tr><td><code>.env</code> מול <code>.env.example</code></td><td>‏<code>.env.example</code> נמצא ב־Git ומראה אילו הגדרות צריך, בלי סודות. <code>.env</code> הוא הקובץ האמיתי שהשירות קורא, ולא נכנס ל־Git.</td></tr>
+    <tr><td>uv / <code>uv sync --locked</code></td><td>uv מתקין ספריות Python. <code>--locked</code>: בדיוק לפי <code>uv.lock</code>, ונכשל במקום לעדכן בשקט.</td></tr>
+    <tr><td>uvicorn</td><td>התוכנה שמריצה שירות Python (FastAPI) ומקשיבה על פורט.</td></tr>
+    <tr><td>npm / <code>npm ci</code></td><td>המקבילה של uv בעולם JavaScript. <code>npm ci</code> מתקין בדיוק לפי <code>package-lock.json</code>.</td></tr>
+    <tr><td>curl</td><td>שולח בקשת HTTP מהטרמינל, כמו דפדפן בלי מסך. בעזרתו בודקים "אתה חי?".</td></tr>
+    <tr><td>health check</td><td>בקשה קצרה לשירות. תשובת ok אומרת שהוא עלה ועונה.</td></tr>
+    <tr><td>Secret</td><td>ערך ש־GitHub שומר מוצפן. אי אפשר לקרוא אותו בחזרה, ובלוגים הוא מוצג כ־<code>***</code>.</td></tr>
+    <tr><td>runner</td><td>מחשב זמני של GitHub שמריץ את ה־workflow ומתחבר לשרת ב־SSH.</td></tr>
+    <tr><td>fingerprint</td><td>"תעודת זהות" של השרת. ה־workflow בודק אותה כדי לא להתחבר למתחזה.</td></tr>
+    <tr><td>port, <code>127.0.0.1</code> מול <code>0.0.0.0</code></td><td>פורט הוא "מספר דירה" בשרת. <code>127.0.0.1</code>: רק מתוך השרת. <code>0.0.0.0</code>: גם מהאינטרנט.</td></tr>
+  </table>
+  </div>
+</main>
+
+<script>
+// Each step: [selector name, question, flow from, flow to, explanation, result, status ("done" or "todo")]
+const steps = [
+  ["המטרה", "מה רצינו להשיג ב־PR 2?",
+   "Merge ל־main", "האתר בטלפון",
+   "תרגיל 4 במדריך: אותה פריסה אוטומטית מ־PR 1, אבל לכל המערכת: frontend, planner, weather, registry, ו־PostgreSQL בתוך Docker. בסוף פותחים בטלפון את כתובת השרת בפורט 3000 ורואים את תוכנית ההשקיה של היום.",
+   "הכלל שנשאר מ־PR 1: כל שלב בסקריפט בודק קודם מה כבר קיים. לכן אותו סקריפט מתאים גם לשרת ריק וגם לשרת שכבר עובד.",
+   "done"],
+  ["החלטת הנתונים", "מה עושים עם הנתונים שכבר קיימים?",
+   "בדיקת קריאה בלבד", "JL-022",
+   "לפני שכתבנו קוד, השווינו את הנתונים. ב־SQLite שעל השרת היו רק נתוני ה־seed (2 חוות, 4 חלקות), אז אין מה להעביר משם, ולא צריך סקריפט migration. ה־PostgreSQL החדש מתחיל מאותו seed. 4 החוות ו־22 החלקות שיצרת ב־PostgreSQL המקומי יועברו פעם אחת, בנפרד מהפריסה.",
+   "<code>registry.db</code> נשאר על השרת בלי שינוי, כגיבוי. ההחלטה נרשמה ביומן ההחלטות כ־JL-022.",
+   "done"],
+  ["תעודות זהות לשירותים", "איך השרת יודע להפעיל כל שירות?",
+   "deploy/systemd/*.service", "systemd",
+   "כתבנו ארבעה קובצי unit: registry, weather, planner, frontend. כל אחד אומר ל־systemd באיזו תיקייה לעבוד, באיזו פקודה להפעיל, ובאיזה משתמש (<code>ubuntu</code>). ה־registry עבר מ־<code>0.0.0.0</code> ל־<code>127.0.0.1</code>, כי עכשיו רק ה־frontend צריך להגיע אליו.",
+   "הקבצים נמצאים ב־Git, והסקריפט מעתיק אותם לשרת בכל פריסה. לכן משנים אותם רק ב־Git, אף פעם לא ישירות בשרת.",
+   "done"],
+  ["PostgreSQL בקופסה", "איך מסד הנתונים מוקם, ולמה הוא לא נמחק?",
+   "Docker", "agropilot-pg",
+   "הסקריפט מתקין Docker אם חסר. הוא יוצר את הקופסה <code>agropilot-pg</code> רק אם היא לא קיימת, ובפריסות הבאות רק מוודא שהיא רצה. הנתונים נשמרים ב־volume בשם <code>agropilot-pg-data</code>. הסיסמה מגיעה מ־GitHub Secrets, ונכתבת לקובץ <code>.env</code> של ה־registry עם הרשאות לבעלים בלבד.",
+   "נתוני ה־demo נטענים רק אם אין אף חווה. כך פריסה עתידית לא תחזיר חוות שמחקת. נבדק מקומית: בהרצה הראשונה נטענו 2 חוות ו־4 חלקות, ובשנייה הטעינה דולגה.",
+   "done"],
+  ["מזג אוויר ותכנון", "מה צריכים weather ו־planner?",
+   "uv sync --locked", ".env מ־.env.example",
+   "לכל אחד: התקנת הספריות בדיוק לפי <code>uv.lock</code>, וקובץ הגדרות. אין להם סודות, אז מעתיקים את <code>.env.example</code>, שכבר מכיל את הערכים הנכונים לשרת. בכל פריסה מוחקים את הקובץ הישן וכותבים חדש.",
+   "שאלת הבדיקה: אם שוכחים את <code>.env</code>, השירות מסרב לעלות, בדיקת ה־health נכשלת, והפריסה נצבעת באדום עם היומן של אותו שירות. זה כישלון ברור, ולא שירות שנראה תקין ועונה תשובות שגויות.",
+   "done"],
+  ["האתר (frontend)", "מה צריך כדי להריץ את האתר?",
+   "Node 24 (NodeSource)", "npm ci → build",
+   "Ubuntu מגיע עם Node 22 ו־npm 9, ואצלך מקומית יש Node 24. לכן Node מותקן ממאגר NodeSource החתום, ורק אם אין כבר Node 24. אחר כך <code>npm ci</code> מתקין את הספריות לפי הקובץ הנעול, ו־<code>npm run build</code> בונה את גרסת הייצור.",
+   "נבדק ב־container נקי של Ubuntu 26.04: בהרצה הראשונה הותקנו node v24.22.3 ו־npm 11.19.1, כמו אצלך. בהרצה השנייה ההתקנה דולגה.",
+   "done"],
+  ["סדר הדלקה ובדיקות", "באיזה סדר מדליקים, ואיך יודעים שהכול עובד?",
+   "registry → weather → planner → frontend", "health checks",
+   "הסדר הגיוני: קודם מי שאחרים תלויים בו. אחר כך הסקריפט שואל כל שירות \"אתה חי?\", עם עד 20 ניסיונות. אם אחד לא עונה, הסקריפט עוצר ומדפיס את היומן של אותו שירות.",
+   "מגבלה שגילינו: דף הבית של ה־frontend מחזיר 200 גם כשהשירותים האחרים למטה. לכן הוא מוכיח רק שהאתר עלה. הבדיקה של כל השרשרת יחד היא תוכנית אמיתית בטלפון.",
+   "done"],
+  ["השליח (workflow)", "איך הסיסמה מגיעה מ־GitHub לשרת?",
+   "secrets → env → envs", "deploy.sh",
+   "שלוש תחנות: הכספת של GitHub, הכיס של ה־runner (<code>env:</code>), ומשם לשרת (<code>envs:</code>). השם חייב להיות זהה אות באות בכל התחנות. בנוסף, הקובץ קיבל שם חדש (<code>deploy.yaml</code>), וזמני ההמתנה הוגדלו ל־20 ו־25 דקות, כי בפריסה הראשונה מותקנים Docker ו־Node.",
+   "",
+   "done"],
+  ["תיעוד ו־PR", "מה נשלח ל־GitHub?",
+   "4 commits", "PR #14",
+   "עדכנו את ה־README: טבלת פורטים, הסוד החדש, אזהרת rollback, ופקודות לניהול השירותים. הוספנו פסקת CD ל־<code>CLAUDE.md</code>. אחר כך ארבעה commits, push של הענף, ופתיחת PR. ה־CI רץ ועבר.",
+   "ה־CI בודק רק את קוד ה־registry. הוא לא הריץ את <code>deploy.sh</code> על שרת אמיתי. לכן עוד לא ממזגים.",
+   "done"],
+  ["מה נשאר לפני merge", "איך נדע שזה עובד באמת?",
+   "שרת בדיקה נקי (8 GB)", "merge",
+   "שרת חדש וריק, עם דיסק בגודל של production. מריצים עליו את הפריסה מהענף ובודקים: פריסה ראשונה ירוקה עם 2 חוות ו־4 חלקות, פריסה שנייה ירוקה, השירותים חוזרים אחרי אתחול, רק פורט 3000 נגיש, וחווה שנוצרה שורדת פריסה. מודדים גם כמה מקום נשאר בדיסק.",
+   "אחרי שהכול עובר: merge (פריסה ל־production), פתיחת 3000 וסגירת 8000 ב־Security Group, ייבוא חד־פעמי של החלקות הנוספות (6 חוות, 26 חלקות), ובדיקה בטלפון.",
+   "todo"]
+];
+
+const pick = document.querySelector('#pick');
+const panel = document.querySelector('#panel');
+const prev = document.querySelector('#prev');
+const next = document.querySelector('#next');
+
+steps.forEach((s, i) => pick.add(new Option((i + 1) + '. ' + s[0])));
+
+function show(i) {
+  pick.selectedIndex = i;
+  const [, title, from, to, body, result, status] = steps[i];
+  const badge = status === 'done'
+    ? '<span class="status done">✓ בוצע</span>'
+    : '<span class="status todo">⏳ עוד לא</span>';
+  panel.innerHTML =
+    '<small>שלב ' + (i + 1) + ' מתוך ' + steps.length + '</small> ' + badge +
+    '<h2>' + title + '</h2>' +
+    '<div class="flow"><bdi>' + from + '</bdi><span aria-hidden="true">←</span><bdi>' + to + '</bdi></div>' +
+    '<p>' + body + '</p>' + (result ? '<aside>' + result + '</aside>' : '');
+  prev.disabled = i === 0;
+  next.disabled = i === steps.length - 1;
+}
+
+prev.onclick = () => show(pick.selectedIndex - 1);
+next.onclick = () => show(pick.selectedIndex + 1);
+pick.onchange = () => show(pick.selectedIndex);
+show(0);
+</script>
+<!-- The diagrams need an internet connection; offline, their text source is shown instead. -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js" integrity="sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I" crossorigin="anonymous"></script>
+<script>
+if (window.mermaid) {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'neutral' });
+}
+</script>
+</body>
+</html>
