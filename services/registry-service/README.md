@@ -2,11 +2,13 @@
 
 ## 1. What is this service?
 
-The AgroPilot registry stores farms and their plots, and serves read-only lists (catalogues) of crops, soils, and drip emitters. It is a FastAPI web API. It keeps its data in a SQLite file, `registry.db`, on a developer's machine, and in PostgreSQL in production.
+The AgroPilot registry stores farms and their plots, and serves read-only lists (catalogues) of crops, soils, and drip emitters. It is a FastAPI web API. It keeps its data in a SQLite file, `registry.db`, on a developer's machine, and in PostgreSQL in production (added in P2).
+
+`planner-service` reads a plot, its soil and its emitter from here, and the `frontend` reads the farms and plots. To run the whole system, see the [root README](../../README.md#run-the-whole-system-locally).
 
 | Data | Routes |
 | --- | --- |
-| Farms | `POST`, `GET` `/v1/farms` and `GET`, `PATCH`, `DELETE` `/v1/farms/{id}` |
+| Farms | `POST`, `GET` `/v1/farms`, `GET`, `PATCH`, `DELETE` `/v1/farms/{id}`, and `GET` `/v1/farms/{id}/area` (total area of the farm's plots) |
 | Plots | `POST`, `GET` `/v1/plots` (optional `?farm_id=`) and `GET`, `PATCH`, `DELETE` `/v1/plots/{id}` |
 | Catalogues | `GET` `/v1/crops`, `/v1/soils`, `/v1/emitters`, each with `/{id}` |
 
@@ -205,8 +207,10 @@ To run against a separate SQLite file, seed it and point the service at it for o
 
 ```bash
 bash seed_registry.sh /tmp/registry-dev.db
-DATABASE_URL=sqlite:////tmp/registry-dev.db uv run uvicorn main:app --host 127.0.0.1 --port 8001
+DATABASE_URL=sqlite:////tmp/registry-dev.db uv run uvicorn main:app --host 127.0.0.1 --port 8010
 ```
+
+Port 8010 keeps it apart from the other services (8000 to 8002). planner-service and the frontend still use the registry on 8000.
 
 ## 7. Run Tests & Coverage
 
@@ -306,7 +310,7 @@ This sends as many requests as 50 parallel connections can, to find limits and e
 | --- | --- | --- |
 | `registry.db already exists and was not changed` | The safety check in `seed_registry.sh` | Nothing to fix: the existing file and its data are kept. Start the service as usual. |
 | `sqlite3 is not installed.` | The `sqlite3` command-line tool is missing | Install it, then run the script again. |
-| `address already in use` when starting uvicorn | Another process uses the port | Stop the other server (`Ctrl+C` in its terminal), find it with `lsof -i :8000`, or use `--port 8001`. |
+| `address already in use` when starting uvicorn | Another process uses the port | Stop the other server (`Ctrl+C` in its terminal), or find it with `lsof -i :8000`. Ports 8001 and 8002 belong to weather-service and planner-service. |
 | Data routes return `503` `{"detail":"Database unavailable"}` | The database cannot be reached: the SQLite file is missing, or the PostgreSQL container is stopped, or the password or database name in `.env` is wrong | SQLite: `bash seed_registry.sh`. PostgreSQL: `docker start agropilot-pg`, then check `DATABASE_URL` in `.env`. |
 | Data routes return `500 Internal Server Error` on SQLite | The file exists but has no tables (for example, an empty file) | Do not delete the file: it may hold data. Check which file the startup log's `Database:` line names. To work with fresh data, seed a separate file and run against it (see the end of [Configuration](#6-configuration)). |
 | Startup log: `Database: invalid. DATABASE_URL could not be parsed.` | Special characters in the password are not encoded | Percent-encode them, for example `@` as `%40`. |

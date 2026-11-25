@@ -11,6 +11,8 @@
 | `GET /v1/forecast?lat={lat}&lon={lon}&days={days}` | The forecast for a point, starting today |
 | `GET /health` | `{"status": "ok"}` |
 
+- `planner-service` calls it for every plan. The `frontend` only checks its `/health`. To run the whole system, see
+  the [root README](../../README.md#run-the-whole-system-locally).
 - The service knows coordinates and dates only, nothing about farms, plots or crops.
 - Errors use `{"code": "...", "detail": "..."}` (`VALIDATION`, `UNAVAILABLE`).
 - It never answers with numbers the provider didn't give: no zeros and no defaults for a missing day (FR-2.8).
@@ -21,6 +23,7 @@
 | --- | --- | --- |
 | [uv](https://docs.astral.sh/uv/) | everything | `uv --version` |
 | `curl` | the checks in this guide | `curl --version` |
+| [`jq`](https://jqlang.org/) (optional) | formatting the JSON in the examples | `jq --version` |
 | Internet access | the live provider (tests and benchmark don't need it) | `curl -s https://api.open-meteo.com` |
 
 Python 3.12 is pinned in this folder's `.python-version`. **Run every command from this folder:**

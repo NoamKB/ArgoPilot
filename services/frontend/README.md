@@ -28,22 +28,44 @@ Every page also shows whether registry-service, weather-service and planner-serv
 - **Phones (NFR-2.8):** below 640 px the 7 days are a list instead of a table, so a 375 px screen doesn't scroll
   sideways, and today's recommendation sits above the fold.
 
-## Run
+## Prerequisites
 
-Node 24 (the repo's `.nvmrc`). Start registry-service (8000), weather-service (8001) and planner-service (8002) first.
+| Tool | Check |
+| --- | --- |
+| Node.js 24, the version in the repo's `.nvmrc` (Next.js 16 needs at least 20.9). With [nvm](https://github.com/nvm-sh/nvm), `nvm use` picks it, and `nvm install` installs it first | `node --version` |
+| npm (comes with Node.js) | `npm --version` |
+| registry-service (8000), weather-service (8001) and planner-service (8002), running. Start them as in the [root README](../../README.md#run-the-whole-system-locally) | `curl http://127.0.0.1:8002/health` |
+
+## Run
 
 ```bash
 cd services/frontend
 nvm use                         # Node 24
-npm install
-cp .env.example .env.local      # first time; .env.local is git-ignored
+npm install                     # first time, and after package.json changes
+cp .env.example .env.local      # first time only; .env.local is git-ignored
 npm run dev                     # http://localhost:3000
 ```
+
+Open http://localhost:3000. You should see two farms with four plots, and a status line with all three services
+`up`. The four demo plots are out of season, so their pages say "No plan for this plot". To see a plan, add an
+in-season plot as in [Get a plan](../../README.md#get-a-plan-add-a-plot-that-is-in-season) in the root README.
+
+Checks (there are no frontend tests):
 
 ```bash
 npm run build                   # production build
 npm run lint                    # ESLint
 ```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `npm run dev` fails with a Node.js version error | The shell's Node.js is too old | `nvm use` in this folder (`nvm install` first if nvm says the version is not installed). |
+| `npm run dev` says a server is already running and prints its address | Next.js runs one dev server per folder | Use the server it names, or stop it (`Ctrl+C` in its terminal) and start again. |
+| The status line shows a service `down` | That service isn't running, or `.env.local` has the wrong URL | Start the service, and check the URLs in `.env.local`. |
+| A plot page says "No plan for this plot" | The plot is outside its growing season (planner `409`) | Expected for the demo plots. A `?soil` value doesn't change it, because the season comes from the planting date. Add an in-season plot (see above). |
+| "Something went wrong" on every page | A variable is missing from `.env.local` | The `npm run dev` terminal names it. Copy it from `.env.example`. |
 
 ## Configuration
 

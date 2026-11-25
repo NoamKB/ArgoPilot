@@ -23,7 +23,8 @@ From those it calculates a day-by-day irrigation plan for 1 to 7 days, starting 
 | --- | --- | --- |
 | [uv](https://docs.astral.sh/uv/) | everything | `uv --version` |
 | `curl` | the checks in this guide | `curl --version` |
-| `registry-service` on 8000, `weather-service` on 8001 | a live plan (tests don't need them) | `curl http://127.0.0.1:8000/health` |
+| [`jq`](https://jqlang.org/) (optional) | formatting the JSON in the examples | `jq --version` |
+| `registry-service` on 8000, `weather-service` on 8001 | a live plan (tests don't need them). Start them first, as in the [root README](../../README.md#run-the-whole-system-locally) | `curl http://127.0.0.1:8000/health` and `curl http://127.0.0.1:8001/health` |
 
 Python 3.12 is pinned in this folder's `.python-version`. **Run every command from this folder:**
 
@@ -54,16 +55,20 @@ In VS Code or Cursor, the `planner-service` launch configuration runs the same c
 
 ## 4. API examples
 
-**A plan:**
+**A plan.** The plot ids come from registry-service:
 
 ```bash
+curl http://127.0.0.1:8000/v1/plots | jq '.[] | {id, name, crop_id, planting_date}'
 curl 'http://127.0.0.1:8002/v1/plots/<plot id>/plan?days=7' | jq .
 ```
 
+The four seed plots were planted in February to May 2026 and their seasons are over, so each gets `409
+PLOT_OUT_OF_SEASON`. To get a plan, add a plot planted 60 days ago, as in
+[Get a plan](../../README.md#get-a-plan-add-a-plot-that-is-in-season) in the root README, and use its id.
+
 This example is a plot with the values of the seed plot "West block" (tomato on sand, 1,500 m², 0.6 L/h emitters) at
 mid-season, with the forecast of worked example Case 3. It is the response that `tests/test_plan.py` checks. Day 6 is
-an irrigation day, limited by the 24-hour cap. (The seed plots themselves are out of season in November 2026, so they
-get `409`.)
+an irrigation day, limited by the 24-hour cap.
 
 ```json
 {
@@ -145,7 +150,7 @@ sequenceDiagram
     participant W as weather-service
 
     F->>P: GET /v1/plots/{id}/plan?days=7
-    break days not 1–7, or id not a UUID
+    break days not 1–7, initial_soil_water_pct not 0–100, or id not a UUID
         P-->>F: 422 VALIDATION
     end
 
